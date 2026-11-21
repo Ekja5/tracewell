@@ -3,6 +3,8 @@ import { caseScope, Ctx, isFacilityUser, requirePerm } from '../perms.js';
 import { now, nowIso } from '../clock.js';
 import { audit, notify, notifyRole } from '../audit.js';
 import { localDate } from './inventory.js';
+import { receivingDeadline, fmtClock } from '../time.js';
+import { syncIssues, explain } from './issues.js';
 
 export async function getPolicy(db: Db, facilityId: string, at: Date = now()) {
   return one(db, `select * from facility_policies where facility_id=$1 and effective_from <= $2 order by version desc limit 1`, [facilityId, at.toISOString()]);
@@ -109,6 +111,12 @@ export async function moveCase(db: Db, ctx: Ctx, caseId: string, input: { schedu
   const invalid = await rows(db, `select r.id, ci.ref, s.expiry_date from reservations r join stock_items s on s.id=r.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id
      where r.case_id=$1 and r.status='active' and s.expiry_date is not null and s.expiry_date < $2`, [caseId, planned]);
   for (const r of invalid) await releaseReservation(db, ctx, r.id, `Case moved to ${planned}; unit expires ${r.expiry_date}`);
+  // Keep stored shipment cutoffs consistent with the new schedule (pick queue sorts by them).
+  const r2 = await caseReadiness(db, caseId);
+  const ships = await rows(db, `select s.id, bool_or(ci.item_type='tray') has_tray from shipments s join shipment_lines sl on sl.shipment_id=s.id join stock_items si on si.id=sl.stock_item_id join catalog_items ci on ci.id=si.catalog_item_id
+     where s.case_id=$1 and s.status in ('planned','picked','packed','dispatched','delivered') group by s.id`, [caseId]);
+  for (const sh of ships) await db.query(`update shipments set due_by=$2 where id=$1`, [sh.id, sh.has_tray ? r2.requiredBy.tray : r2.requiredBy.implant]);
+  await syncIssues(db, ctx.tenantId, caseId, r2);
   const conflicts = await analyzeConflicts(db, caseId);
   await audit(db, ctx, 'case.move', 'case', caseId, { from: c.scheduled_start, to: newStart, conflicts }, { caseId, reason: input.reason });
   const msg = `Case ${c.case_ref} moved to ${fmtLocal(newStart, c.timezone)}. ${conflicts.length ? `${conflicts.length} conflict(s): ${conflicts.map((x) => x.message).join('; ')}` : 'No conflicts found.'}`;
@@ -129,6 +137,7 @@ export async function cancelCase(db: Db, ctx: Ctx, caseId: string, input: { reas
   const ships = await rows(db, `select id, ref, status from shipments where case_id=$1 and status in ('planned','picked','packed')`, [caseId]);
   for (const s of ships) await db.query(`update shipments set status='cancelled' where id=$1`, [s.id]);
   const moving = await rows(db, `select ref from shipments where case_id=$1 and status in ('dispatched','delivered')`, [caseId]);
+  await syncIssues(db, ctx.tenantId, caseId, { status: 'cancelled', blockers: [] });
   await audit(db, ctx, 'case.cancel', 'case', caseId, { released_reservations: res.length, cancelled_shipments: ships.map((s) => s.ref) }, { caseId, reason: input.reason });
   const msg = `Case ${c.case_ref} cancelled: ${res.length} reservation(s) released${moving.length ? `; shipments already moving need a return: ${moving.map((m) => m.ref).join(', ')}` : ''}.`;
   await notify(db, ctx.tenantId, c.rep_user_id, { kind: 'case_cancelled', message: msg, caseId, facilityId: c.facility_id, dedupe: `cancel:${caseId}` });
@@ -174,7 +183,7 @@ export function fmtLocal(iso: string | Date, tz: string) {
 
 // ---------------- Readiness ----------------
 
-export interface Blocker { code: string; severity: 'critical' | 'warning'; message: string; owner: string; ownerRole: string; actBy?: string | null; requiredBy?: string | null; action: string; link?: string }
+export interface Blocker { key: string; deadlineNote?: string; code: string; severity: 'critical' | 'warning'; message: string; owner: string; ownerRole: string; actBy?: string | null; requiredBy?: string | null; action: string; link?: string }
 
 /**
  * Derive readiness strictly from persisted records. Nothing is "ready" because of a status flag:
@@ -187,17 +196,27 @@ export async function caseReadiness(db: Db, caseId: string) {
     from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id where c.id=$1`, [caseId]);
   const policy = await getPolicy(db, c.facility_id);
   const start = new Date(c.scheduled_start);
-  const trayDue = new Date(start.getTime() - policy.tray_due_hours_before * 3600e3);
-  const implantDue = new Date(start.getTime() - policy.implant_due_hours_before * 3600e3);
+  // Policy lead times, then clipped to the facility's receiving hours (facility-local time).
+  const trayRaw = new Date(start.getTime() - policy.tray_due_hours_before * 3600e3);
+  const implantRaw = new Date(start.getTime() - policy.implant_due_hours_before * 3600e3);
+  const trayD = receivingDeadline(trayRaw, c.timezone, policy.receiving_open, policy.receiving_close);
+  const implantD = receivingDeadline(implantRaw, c.timezone, policy.receiving_open, policy.receiving_close);
+  const trayDue = trayD.at, implantDue = implantD.at;
   const t = now();
   const planned = localDate(start, c.timezone);
   const blockers: Blocker[] = [];
   const items: any[] = [];
+  const staleEvidence: any[] = [];
+  const hoursNote = policy.receiving_close ? `${c.facility_name} receiving is open ${fmtClock(policy.receiving_open)}–${fmtClock(policy.receiving_close)} local time` : '';
+  const dueNote = (itemType: string) => {
+    const d = itemType === 'tray' ? trayD : implantD;
+    return `Must be at ${c.facility_name} receiving by ${fmtLocal(d.at, c.timezone)}${d.clipped ? ` (receiving closes at ${fmtClock(policy.receiving_close)})` : ''}.`;
+  };
   const opsName = 'Ops manager';
   const repName = c.rep_name ?? 'Assigned rep';
 
   if (c.status === 'cancelled' || c.status === 'completed' || c.status === 'closed') {
-    return { caseId, status: c.status, blockers, items, requiredBy: { tray: trayDue.toISOString(), implant: implantDue.toISOString() }, lastVerification: null, nextAction: null, policyVersion: policy.version };
+    return { caseId, status: c.status, blockers, items, staleEvidence, hoursNote, requiredBy: { tray: trayDue.toISOString(), implant: implantDue.toISOString() }, lastVerification: null, nextAction: null, policyVersion: policy.version };
   }
 
   const reqs = await rows(db, `select cr.*, ci.ref, ci.description, ci.item_type, ci.tracking from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.case_id=$1 and cr.active order by cr.mandatory desc, ci.item_type desc, ci.ref`, [caseId]);
@@ -217,36 +236,49 @@ export async function caseReadiness(db: Db, caseId: string) {
     items.push(itemState);
     if (!req.mandatory) { itemState.state = covered >= req.qty ? 'backup reserved' : 'optional backup'; continue; }
     if (covered < req.qty) {
-      blockers.push({ code: 'uncovered', severity: t > due ? 'critical' : 'warning', message: `No unit of ${req.ref} (${req.description}) is reserved for this case: ${req.qty - covered} of ${req.qty} still needed.`, owner: repName, ownerRole: 'rep', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Run exact-item rescue search', link: `/cases/${caseId}/rescue/${req.id}` });
+      blockers.push({ key: `uncovered:${req.id}`, deadlineNote: dueNote(req.item_type), code: 'uncovered', severity: t > due ? 'critical' : 'warning', message: `No unit of ${req.ref} (${req.description}) is reserved for this case: ${req.qty - covered} of ${req.qty} still needed.`, owner: repName, ownerRole: 'rep', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Run exact-item rescue search', link: `/cases/${caseId}/rescue/${req.id}` });
     }
     for (const r of resv) {
       const u: any = { reservationId: r.id, stockItemId: r.stock_item_id, serial: r.serial_number, lot: r.lot_number, expiry: r.expiry_date, location: r.loc_name, locationKind: r.loc_kind };
       itemState.units.push(u);
       const label = `${req.ref} ${r.serial_number ? 'SN ' + r.serial_number : 'lot ' + r.lot_number}`;
-      if (r.hold_reason) { blockers.push({ code: 'hold', severity: 'critical', message: `${label} is on quality hold (${r.hold_reason}). It cannot be used or shipped.`, owner: 'Quality manager', ownerRole: 'quality_manager', action: 'Find an unaffected unit', requiredBy: due.toISOString(), link: `/cases/${caseId}/rescue/${req.id}` }); u.state = 'on hold'; continue; }
-      if (r.expiry_date && r.expiry_date < planned) { blockers.push({ code: 'expired', severity: 'critical', message: `${label} expires ${r.expiry_date}, before the planned use date ${planned}.`, owner: repName, ownerRole: 'rep', action: 'Replace with an in-date unit', link: `/cases/${caseId}/rescue/${req.id}` }); u.state = 'expires before use'; continue; }
+      if (r.hold_reason) { blockers.push({ key: `unit:${r.id}`, code: 'hold', severity: 'critical', message: `${label} is on quality hold (${r.hold_reason}). It cannot be used or shipped.`, owner: 'Quality manager', ownerRole: 'quality_manager', action: 'Find an unaffected unit', requiredBy: due.toISOString(), link: `/cases/${caseId}/rescue/${req.id}` }); u.state = 'on hold'; continue; }
+      if (r.expiry_date && r.expiry_date < planned) { blockers.push({ key: `unit:${r.id}`, code: 'expired', severity: 'critical', message: `${label} expires ${r.expiry_date}, before the planned use date ${planned}.`, owner: repName, ownerRole: 'rep', action: 'Replace with an in-date unit', link: `/cases/${caseId}/rescue/${req.id}` }); u.state = 'expires before use'; continue; }
       if (r.loc_facility === c.facility_id && ['hospital_receiving', 'hospital_spd', 'consignment'].includes(r.loc_kind)) {
         const recv = await maybe(db, `select occurred_at at, movement_type from inventory_movements where stock_item_id=$1 and movement_type in ('receive','opening_balance','adjustment') and to_location_id=$2 order by occurred_at desc limit 1`, [r.stock_item_id, r.location_id]);
         if (recv) bump(recv.at, recv.movement_type === 'receive' ? 'received and checked at facility' : recv.movement_type === 'opening_balance' ? 'opening balance import (not a physical check)' : 'count adjustment', label);
         const cnt = await maybe(db, `select max(cl.counted_at) at from count_lines cl join count_sessions cs on cs.id=cl.session_id where cl.stock_item_id=$1 and cs.location_id=$2`, [r.stock_item_id, r.location_id]);
         if (cnt?.at) bump(cnt.at, 'cycle count', label);
         if (req.item_type === 'tray') {
-          const v = await maybe(db, `select * from tray_verifications where tray_stock_item_id=$1 and location_id in (select id from locations where facility_id=$2) order by verified_at desc, recorded_at desc limit 1`, [r.stock_item_id, c.facility_id]);
+          // Only a verification recorded after the tray's latest arrival at this facility counts.
+          const arrived = await maybe(db, `select max(m.occurred_at) at from inventory_movements m join locations l on l.id=m.to_location_id where m.stock_item_id=$1 and l.facility_id=$2`, [r.stock_item_id, c.facility_id]);
+          const v = await maybe(db, `select * from tray_verifications where tray_stock_item_id=$1 and location_id in (select id from locations where facility_id=$2) and verified_at >= coalesce($3::timestamptz, '-infinity') order by verified_at desc, recorded_at desc limit 1`, [r.stock_item_id, c.facility_id, arrived?.at ?? null]);
+          const older = v ? null : await maybe(db, `select verified_at from tray_verifications where tray_stock_item_id=$1 order by verified_at desc limit 1`, [r.stock_item_id]);
           const openD = await rows(db, `select d.*, ci.ref, ci.description from discrepancies d left join catalog_items ci on ci.id=d.catalog_item_id where d.tray_stock_item_id=$1 and d.status='open'`, [r.stock_item_id]);
           if (v) bump(v.verified_at, 'tray contents verified', label);
-          if (!v) { blockers.push({ code: 'tray_unverified', severity: t > due ? 'critical' : 'warning', message: `Tray ${label} is at ${r.loc_name} but its contents have not been verified against manifest.`, owner: 'Hospital receiving', ownerRole: 'hospital_receiving', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Verify tray contents', link: `/trays/${r.stock_item_id}/verify?case=${caseId}` }); u.state = 'awaiting verification'; continue; }
+          if (!v) { blockers.push({ key: `unit:${r.id}`, deadlineNote: dueNote('tray'), code: 'tray_unverified', severity: t > due ? 'critical' : 'warning', message: `Tray ${label} is at ${r.loc_name} but its contents have not been verified against the manifest since it arrived${older ? ` (the last check, ${fmtLocal(older.verified_at, c.timezone)}, predates this delivery and does not count)` : ''}.`, owner: 'Hospital receiving', ownerRole: 'hospital_receiving', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Verify tray contents', link: `/trays/${r.stock_item_id}/verify?case=${caseId}` }); u.state = 'awaiting verification'; continue; }
           if (v.result !== 'complete' || openD.length) {
             const missing = openD.map((d) => d.ref ? `${d.description} (${d.ref})` : d.detail).join(', ');
-            blockers.push({ code: 'tray_incomplete', severity: 'critical', message: `Tray ${label} failed contents verification: ${missing || 'required items missing'}. It stays blocked until a replacement is received and the tray is re-verified complete.`, owner: opsName, ownerRole: 'ops_manager', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Send replacement instrument, then re-verify', link: `/cases/${caseId}` });
+            const nMissing = openD.filter((d) => d.kind === 'missing_instrument').length;
+            blockers.push({ key: `unit:${r.id}`, deadlineNote: dueNote('tray'), code: 'tray_incomplete', severity: 'critical', message: `Tray ${r.serial_number} is missing ${nMissing || 'a'} required instrument${nMissing > 1 ? 's' : ''}: ${missing || 'required items missing'}. It stays blocked until a replacement is received and the tray is re-verified complete.`, owner: opsName, ownerRole: 'ops_manager', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Send replacement instrument, then re-verify', link: `/cases/${caseId}` });
             u.state = 'contents incomplete'; continue;
           }
           if (policy.requires_release_decision) {
             const rel = await maybe(db, `select * from release_decisions where case_id=$1 and tray_stock_item_id=$2 order by recorded_at desc limit 1`, [caseId, r.stock_item_id]);
-            if (!rel || rel.recorded_at < v.verified_at) { blockers.push({ code: 'awaiting_release', severity: t > due ? 'critical' : 'warning', message: `Tray ${label} is verified complete. ${c.facility_name} requires its own sterile processing staff to record a release decision; none is recorded yet.`, owner: 'Hospital SPD', ownerRole: 'hospital_spd', requiredBy: start.toISOString(), action: 'Hospital records release decision', link: `/cases/${caseId}` }); u.state = 'awaiting hospital release'; continue; }
-            if (rel.decision !== 'released') { blockers.push({ code: 'not_released', severity: 'critical', message: `Hospital recorded "not released" for tray ${label}.`, owner: opsName, ownerRole: 'ops_manager', action: 'Arrange replacement tray', link: `/cases/${caseId}` }); u.state = 'not released'; continue; }
+            if (!rel || rel.recorded_at < v.verified_at) { blockers.push({ key: `unit:${r.id}`, code: 'awaiting_release', severity: t > due ? 'critical' : 'warning', message: `Tray ${label} is verified complete. ${c.facility_name} requires its own sterile processing staff to record a release decision; none is recorded yet.`, owner: 'Hospital SPD', ownerRole: 'hospital_spd', requiredBy: start.toISOString(), action: 'Hospital records release decision', link: `/cases/${caseId}` }); u.state = 'awaiting hospital release'; continue; }
+            if (rel.decision !== 'released') { blockers.push({ key: `unit:${r.id}`, code: 'not_released', severity: 'critical', message: `Hospital recorded "not released" for tray ${label}.`, owner: opsName, ownerRole: 'ops_manager', action: 'Arrange replacement tray', link: `/cases/${caseId}` }); u.state = 'not released'; continue; }
             bump(rel.recorded_at, 'hospital release recorded', label);
           }
         }
+        // Stale evidence stays visible even when the unit counts as ready.
+        const ev = await maybe(db, `select at, kind from (
+            select m.occurred_at at, case when m.movement_type='receive' then 'received and checked here' when m.movement_type='opening_balance' then 'opening balance import (never physically scanned here)' else 'count adjustment' end kind
+              from inventory_movements m where m.stock_item_id=$1 and m.to_location_id=$2 and m.movement_type in ('receive','opening_balance','adjustment')
+            union all select cl.counted_at, 'cycle count here' from count_lines cl join count_sessions cs on cs.id=cl.session_id where cl.stock_item_id=$1 and cs.location_id=$2
+            union all select tv.verified_at, 'tray contents verified here' from tray_verifications tv where tv.tray_stock_item_id=$1 and tv.location_id=$2) x order by at desc limit 1`, [r.stock_item_id, r.location_id]);
+        const ageH = ev ? (t.getTime() - new Date(ev.at).getTime()) / 36e5 : null;
+        u.evidence = ev ? { at: new Date(ev.at).toISOString(), kind: ev.kind, ageHours: Math.round(ageH!) } : null;
+        if (!ev || /never physically/.test(ev.kind) || ageH! > 7 * 24) staleEvidence.push({ label, location: r.loc_name, kind: ev?.kind ?? 'no evidence', at: ev ? new Date(ev.at).toISOString() : null, ageHours: ageH == null ? null : Math.round(ageH) });
         u.state = 'ready'; continue;
       }
       if (r.loc_kind === 'in_transit') {
@@ -254,10 +286,10 @@ export async function caseReadiness(db: Db, caseId: string) {
              (select max(occurred_at) from custody_events e where e.shipment_id=s.id and e.event_type in ('delivered','courier_scan')) courier_at
            from shipment_lines sl join shipments s on s.id=sl.shipment_id where sl.reservation_id=$1 and s.status in ('dispatched','delivered') order by s.created_at desc limit 1`, [r.id]);
         if (sh?.status === 'delivered') {
-          blockers.push({ code: 'delivered_unreceived', severity: t > due ? 'critical' : 'warning', message: `Courier reported ${label} delivered (${sh.ref}), but hospital receiving has not checked it in. A courier scan does not make the case ready.`, owner: 'Hospital receiving', ownerRole: 'hospital_receiving', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Receive and verify shipment', link: `/shipments/${sh.id}` });
+          blockers.push({ key: `unit:${r.id}`, deadlineNote: dueNote(req.item_type), code: 'delivered_unreceived', severity: t > due ? 'critical' : 'warning', message: `Courier reported ${label} delivered (${sh.ref}), but hospital receiving has not checked it in. A courier scan does not make the case ready.`, owner: 'Hospital receiving', ownerRole: 'hospital_receiving', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Receive and verify shipment', link: `/shipments/${sh.id}` });
           u.state = 'courier delivered; not received';
         } else {
-          blockers.push({ code: 'in_transit', severity: 'warning', message: `${label} is in transit on ${sh?.ref ?? 'a shipment'}; must be received by ${fmtLocal(due, c.timezone)}.`, owner: 'Courier', ownerRole: 'courier', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Track delivery', link: sh ? `/shipments/${sh.id}` : undefined });
+          blockers.push({ key: `unit:${r.id}`, deadlineNote: dueNote(req.item_type), code: 'in_transit', severity: t > due ? 'critical' : 'warning', message: `${label} is in transit on ${sh?.ref ?? 'a shipment'}.`, owner: 'Courier', ownerRole: 'courier', requiredBy: due.toISOString(), actBy: due.toISOString(), action: 'Track delivery', link: sh ? `/shipments/${sh.id}` : undefined });
           u.state = 'in transit';
         }
         continue;
@@ -267,7 +299,7 @@ export async function caseReadiness(db: Db, caseId: string) {
       const actBy = r.travel_min != null ? new Date(due.getTime() - r.travel_min * 60e3) : null;
       const late = actBy ? t > actBy : true;
       blockers.push({
-        code: ship ? 'awaiting_dispatch' : 'not_shipped', severity: late ? 'critical' : 'warning',
+        key: `unit:${r.id}`, deadlineNote: dueNote(req.item_type), code: ship ? 'awaiting_dispatch' : 'not_shipped', severity: late ? 'critical' : 'warning',
         message: `${label} is at ${r.loc_name}${ship ? ` on ${ship.ref} (${ship.status})` : ' with no shipment planned'}. ${actBy ? `Estimated travel ${r.travel_min} min, so it must leave by ${fmtLocal(actBy, c.timezone)}.` : 'No travel estimate exists for this route.'}${late && actBy ? ' That time has passed; find a closer unit.' : ''}`,
         owner: ship ? 'Warehouse' : opsName, ownerRole: ship ? 'warehouse' : 'ops_manager', requiredBy: due.toISOString(), actBy: actBy?.toISOString() ?? null,
         action: ship ? 'Pick, pack and dispatch' : 'Create delivery shipment', link: ship ? `/shipments/${ship.id}` : `/cases/${caseId}`,
@@ -278,22 +310,41 @@ export async function caseReadiness(db: Db, caseId: string) {
 
   // Open discrepancies tied to the case (not tray-specific ones already reported).
   const disc = await rows(db, `select d.* from discrepancies d where d.case_id=$1 and d.status='open' and d.tray_stock_item_id is null`, [caseId]);
-  for (const d of disc) blockers.push({ code: 'discrepancy', severity: 'warning', message: `Open ${d.kind.replace(/_/g, ' ')} discrepancy: ${d.detail}`, owner: opsName, ownerRole: 'ops_manager', action: 'Resolve discrepancy', link: d.shipment_id ? `/shipments/${d.shipment_id}` : `/cases/${caseId}` });
+  for (const d of disc) blockers.push({ key: `disc:${d.id}`, code: 'discrepancy', severity: 'warning', message: `Open ${d.kind.replace(/_/g, ' ')} discrepancy: ${d.detail}`, owner: opsName, ownerRole: 'ops_manager', action: 'Resolve discrepancy', link: d.shipment_id ? `/shipments/${d.shipment_id}` : `/cases/${caseId}` });
 
   // External schedule feed freshness stays visible.
   const feed = await maybe(db, `select * from integration_feeds where code=$1`, [`sched-${c.facility_code}`]);
   if (feed) {
     const stale = !feed.last_success_at || t.getTime() - new Date(feed.last_success_at).getTime() > feed.stale_after_minutes * 60e3;
-    if (stale) blockers.push({ code: 'stale_feed', severity: 'warning', message: `${feed.name} last synced ${feed.last_success_at ? fmtLocal(feed.last_success_at, c.timezone) : 'never'}; the case time has not been reconfirmed with the hospital schedule.`, owner: 'Scheduler', ownerRole: 'scheduler', action: 'Confirm case time with hospital', link: '/integrations' });
+    if (stale) blockers.push({ key: `feed:${feed.id}`, code: 'stale_feed', severity: 'warning', message: `${feed.name} last synced ${feed.last_success_at ? fmtLocal(feed.last_success_at, c.timezone) : 'never'}; the case time has not been reconfirmed with the hospital schedule.`, owner: 'Scheduler', ownerRole: 'scheduler', action: 'Confirm case time with hospital', link: '/integrations' });
   }
 
   const status = c.status !== 'scheduled' ? c.status : blockers.some((b) => b.severity === 'critical') ? 'blocked' : blockers.length ? 'at_risk' : 'ready';
   blockers.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'critical' ? -1 : 1) || String(a.actBy ?? 'z').localeCompare(String(b.actBy ?? 'z')));
   return {
-    caseId, status, blockers, items, policyVersion: policy.version,
+    caseId, status, blockers, items, staleEvidence, hoursNote, policyVersion: policy.version,
     requiredBy: { tray: trayDue.toISOString(), implant: implantDue.toISOString() },
     lastVerification: lastVer, nextAction: blockers[0] ? { action: blockers[0].action, owner: blockers[0].owner, actBy: blockers[0].actBy ?? blockers[0].requiredBy, link: blockers[0].link } : null,
   };
+}
+
+/** Readiness plus persisted issue ownership: each blocker gets its issue id, named owner, status and plain-English explanation. */
+export async function readinessWithIssues(db: Db, tenantId: string, caseId: string) {
+  const r = await caseReadiness(db, caseId);
+  await syncIssues(db, tenantId, caseId, r);
+  const tz = (await one(db, `select f.timezone from cases c join facilities f on f.id=c.facility_id where c.id=$1`, [caseId])).timezone;
+  const issues = await rows(db, `select i.*, u.display_name owner_name, a.display_name ack_name,
+      (select json_build_object('kind', e.kind, 'at', e.at, 'detail', e.detail) from issue_events e where e.issue_id=i.id order by e.at desc, e.id desc limit 1) last_event
+    from case_issues i left join users u on u.id=i.owner_user_id left join users a on a.id=i.acknowledged_by where i.case_id=$1 and i.status <> 'resolved'`, [caseId]);
+  const byKey = new Map(issues.map((i) => [i.issue_key, i]));
+  const blockers = r.blockers.map((b) => {
+    const i = byKey.get(b.key);
+    return { ...b, issueId: i?.id ?? null, owner: i?.owner_name ?? b.owner, ownerUserId: i?.owner_user_id ?? null, issueStatus: i?.status ?? 'open',
+      acknowledgedBy: i?.ack_name ?? null, acknowledgedAt: i?.acknowledged_at ?? null, escalated: (i?.escalation_level ?? 0) > 0, lastEvent: i?.last_event ?? null,
+      explanation: explain({ message: b.message, deadlineNote: b.deadlineNote }, i?.owner_name ?? null, b.actBy ?? b.requiredBy ?? null, tz) };
+  });
+  const top = blockers[0];
+  return { ...r, blockers, nextAction: top ? { action: top.action, owner: top.owner, actBy: top.actBy ?? top.requiredBy, link: top.link, issueId: top.issueId, explanation: top.explanation, issueStatus: top.issueStatus } : null };
 }
 
 export async function readinessBoard(db: Db, ctx: Ctx, hours = 72) {
@@ -304,12 +355,16 @@ export async function readinessBoard(db: Db, ctx: Ctx, hours = 72) {
      where c.scheduled_start between $1 and $2 and ${scope} order by c.scheduled_start`, [new Date(t.getTime() - 6 * 3600e3).toISOString(), new Date(t.getTime() + hours * 3600e3).toISOString(), ...sp]);
   const out: any[] = [];
   for (const c of cases) {
-    const r = await caseReadiness(db, c.id);
+    const r = await readinessWithIssues(db, ctx.tenantId, c.id);
     out.push({
-      id: c.id, caseRef: c.case_ref, facility: c.facility_name, facilityCode: c.facility_code, timezone: c.timezone, procedure: c.procedure, surgeonRef: c.surgeon_ref,
-      scheduledStart: c.scheduled_start, status: r.status, caseStatus: c.status, urgent: c.urgent, repName: c.rep_name, requiredBy: r.requiredBy,
-      blockers: isFacilityUser(ctx) ? r.blockers.map((b) => ({ ...b })) : r.blockers, lastVerification: r.lastVerification, nextAction: r.nextAction,
+      id: c.id, caseRef: c.case_ref, facility: c.facility_name, facilityCode: c.facility_code, facilityId: c.facility_id, timezone: c.timezone, procedure: c.procedure, surgeonRef: c.surgeon_ref,
+      scheduledStart: c.scheduled_start, status: r.status, caseStatus: c.status, urgent: c.urgent, repName: c.rep_name, requiredBy: r.requiredBy, hoursNote: r.hoursNote,
+      blockers: r.blockers, lastVerification: r.lastVerification, nextAction: r.nextAction, staleEvidence: r.staleEvidence,
+      minutesLeft: r.nextAction?.actBy ? Math.round((new Date(r.nextAction.actBy).getTime() - t.getTime()) / 60e3) : null,
     });
   }
+  // Most urgent first: blocked, then least time left.
+  const rank: Record<string, number> = { blocked: 0, at_risk: 1, ready: 2 };
+  out.sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || (a.minutesLeft ?? 1e9) - (b.minutesLeft ?? 1e9) || String(a.scheduledStart).localeCompare(String(b.scheduledStart)));
   return { generatedAt: t.toISOString(), windowHours: hours, cases: out };
 }

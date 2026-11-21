@@ -3,9 +3,10 @@ import { Ctx, requirePerm } from '../perms.js';
 import { now, nowIso } from '../clock.js';
 import { audit, notifyRole, raiseException } from '../audit.js';
 import { parseScan } from '../../shared/gs1.js';
-import { applyMovement, locationByKind } from './inventory.js';
+import { applyMovement, locationByKind, reverseMovement } from './inventory.js';
 import { getVisibleCase } from './cases.js';
 import { deriveCharge } from './billing.js';
+import { syncIssues } from './issues.js';
 
 export type Disposition = 'implanted' | 'opened_unused' | 'wasted' | 'damaged' | 'returned_sealed' | 'missing';
 export const DISPOSITIONS: Disposition[] = ['implanted', 'opened_unused', 'wasted', 'damaged', 'returned_sealed', 'missing'];
@@ -87,9 +88,15 @@ export async function recordUsage(db: Db, ctx: Ctx, input: UsageInput) {
     if (stock && input.entryMethod === 'manual' && !['import', 'label', 'seed', 'reviewed_entry'].includes(stock.data_source)) review.push('Manually entered identifiers must match a validated record');
   }
 
+  // A serialized unit can be used once. A rescan of the same serial is rejected (not posted), and says so.
+  let duplicateOf: any = null;
+  if (stock?.is_serial && !review.length) {
+    duplicateOf = await maybe(db, `select ue.id, ue.disposition, ue.occurred_at, c2.case_ref from usage_events ue join cases c2 on c2.id=ue.case_id
+       where ue.stock_item_id=$1 and ue.status='recorded' and ue.disposition <> 'returned_sealed' limit 1`, [stock.id]);
+  }
   // Locate the unit in the ledger: the case facility first, then the assigned rep's trunk, then quarantine.
   let source: any = null;
-  if (stock && !review.length && input.disposition !== 'returned_sealed') {
+  if (stock && !review.length && !duplicateOf && input.disposition !== 'returned_sealed') {
     source = await maybe(db, `select b.*, l.kind, l.name from stock_balances b join locations l on l.id=b.location_id
        where b.stock_item_id=$1 and b.qty >= $2 and b.condition='sealed' and (l.facility_id=$3 or l.holder_user_id=$4 or l.kind='quarantine')
        order by (l.facility_id=$3) desc nulls last, (l.kind='quarantine') limit 1`, [stock.id, qty, c.facility_id, c.rep_user_id]);
@@ -99,7 +106,8 @@ export async function recordUsage(db: Db, ctx: Ctx, input: UsageInput) {
     }
   }
 
-  const status = review.length ? 'needs_review' : 'recorded';
+  const status = duplicateOf ? 'rejected' : review.length ? 'needs_review' : 'recorded';
+  if (duplicateOf) review.push(`Duplicate scan: SN ${stock.serial_number} was already recorded as ${duplicateOf.disposition.replace('_', ' ')} on ${duplicateOf.case_ref} at ${new Date(duplicateOf.occurred_at).toISOString()}. A serialized unit is used once, so this scan was not posted to stock or billing.`);
   const ev = (await db.query(`insert into usage_events(tenant_id, case_id, client_event_id, catalog_item_id, stock_item_id, disposition, qty_units, package_gtin, units_per_package, entry_method, raw_scan, scan_format, parsed, status, review_reason, recorded_offline, actor_user_id, occurred_at, recorded_at)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) on conflict (tenant_id, client_event_id) do nothing returning *`,
     [ctx.tenantId, c.id, input.clientEventId, catalog?.id ?? null, stock?.id ?? null, input.disposition, qty, packageGtin, unitsPerPackage, input.entryMethod, input.rawScan ?? null, scanFormat,
@@ -108,7 +116,7 @@ export async function recordUsage(db: Db, ctx: Ctx, input: UsageInput) {
   await audit(db, ctx, input.offline ? 'usage.sync_offline' : 'usage.record', 'usage_event', ev.id, { disposition: input.disposition, status, review, raw_scan_present: !!input.rawScan }, { caseId: c.id, occurredAt });
 
   if (status === 'recorded') await postUsage(db, ctx, ev, source, c);
-  else await raiseException(db, ctx.tenantId, { kind: 'usage_review', severity: 'warning', title: `${c.case_ref}: usage needs review`, detail: review.join(' '), caseId: c.id, refTable: 'usage_events', refId: ev.id, ownerRole: 'inventory_coordinator', dedupe: `usage:${ev.id}` });
+  else if (status === 'needs_review') await raiseException(db, ctx.tenantId, { kind: 'usage_review', severity: 'warning', title: `${c.case_ref}: usage needs review`, detail: review.join(' '), caseId: c.id, refTable: 'usage_events', refId: ev.id, ownerRole: 'inventory_coordinator', dedupe: `usage:${ev.id}` });
   return { usageEvent: await one(db, `select * from usage_events where id=$1`, [ev.id]), replayed: false, status, reviewReason: review.join(' ') || null };
 }
 
@@ -212,7 +220,54 @@ export async function submitCloseout(db: Db, ctx: Ctx, caseId: string, input: { 
     if (!has) await db.query(`insert into instrument_returns(tenant_id, case_id, tray_stock_item_id, status, recorded_by, recorded_at) values ($1,$2,$3,'awaiting_return',$4,$5)`, [ctx.tenantId, caseId, t.stock_item_id, ctx.userId, nowIso()]);
   }
   await db.query(`update cases set status='completed', completed_at=$2, version=version+1 where id=$1`, [caseId, input.completedAt ?? nowIso()]);
+  await syncIssues(db, ctx.tenantId, caseId, { status: 'completed', blockers: [] });
   await audit(db, ctx, 'closeout.submit', 'case', caseId, { pending_review: pendingReview }, { caseId });
   await notifyRole(db, ctx.tenantId, ['finance'], { kind: 'closeout', message: `Closeout submitted for ${c.case_ref}${pendingReview ? ` (${pendingReview} usage line(s) under review)` : ''}`, caseId, facilityId: c.facility_id, dedupe: `closeout:${caseId}` });
   return { ok: true, pendingReview };
+}
+
+/**
+ * Correct a recorded usage line (wrong item scanned, wrong disposition). The original event is kept;
+ * its stock movement is reversed by a linked reversal, its draft charge is voided with history, and
+ * the reservation is restored. Once a packet has been sent, money is corrected by a credit instead.
+ */
+export async function voidUsage(db: Db, ctx: Ctx, usageEventId: string, input: { reason: string }) {
+  requirePerm(ctx, 'usage.void');
+  if (!input.reason?.trim()) throw new AppError(400, 'reason_required', 'Say why this line is being corrected');
+  const ev = await one(db, `select * from usage_events where id=$1 for update`, [usageEventId]);
+  const c = await getVisibleCase(db, ctx, ev.case_id);
+  if (ctx.role === 'rep' && c.rep_user_id !== ctx.userId) throw new AppError(403, 'not_assigned', 'Only the assigned rep can correct this case');
+  if (ev.status === 'voided') return { usageEvent: ev, replayed: true };
+  if (ev.status === 'needs_review' || ev.status === 'rejected') {
+    await db.query(`update usage_events set status='voided', voided_by=$2, voided_at=$3, void_reason=$4 where id=$1`, [ev.id, ctx.userId, nowIso(), input.reason]);
+    await db.query(`update exceptions set status='resolved', resolved_by=$2, resolved_at=$3, resolution=$4 where ref_table='usage_events' and ref_id=$1 and status='open'`, [ev.id, ctx.userId, nowIso(), `Voided: ${input.reason}`]);
+    await audit(db, ctx, 'usage.void', 'usage_event', ev.id, { prior_status: ev.status }, { caseId: c.id, reason: input.reason });
+    return { usageEvent: await one(db, `select * from usage_events where id=$1`, [ev.id]), replayed: false };
+  }
+  const ch = await maybe(db, `select ch.*, bp.status packet_status from charges ch left join billing_packets bp on bp.id=ch.packet_id where ch.usage_event_id=$1`, [ev.id]);
+  if (ch?.packet_id && ch.packet_status !== 'draft') throw new AppError(409, 'packet_sent', 'This line is on a packet that was already sent. Finance must issue a credit; stock is corrected separately by ops.');
+  const mv = await maybe(db, `select m.id from inventory_movements m where m.usage_event_id=$1 and m.movement_type <> 'reversal' and not exists (select 1 from inventory_movements r where r.reverses_movement_id=m.id)`, [ev.id]);
+  if (mv) await reverseMovement(db, ctx, mv.id, `Usage correction: ${input.reason}`);
+  await db.query(`update reservations set status='active', released_at=null, release_reason=null where id = (select id from reservations where case_id=$1 and stock_item_id=$2 and status in ('consumed','released') order by created_at desc limit 1) and $3`, [c.id, ev.stock_item_id, c.status === 'scheduled']);
+  if (ch) {
+    await db.query(`update charges set status='void', packet_id=null where id=$1`, [ch.id]);
+    await db.query(`insert into charge_events(tenant_id, charge_id, kind, from_status, to_status, amount_cents, reason, actor_user_id, at) values ($1,$2,'voided',$3,'void',$4,$5,$6,$7)`, [ctx.tenantId, ch.id, ch.status, ch.amount_cents, `Usage line corrected: ${input.reason}`, ctx.userId, nowIso()]);
+    await db.query(`update exceptions set status='resolved', resolved_by=$2, resolved_at=$3, resolution='Usage line voided' where ref_table='charges' and ref_id=$1 and status='open'`, [ch.id, ctx.userId, nowIso()]);
+  }
+  await db.query(`update replenishments set status='void' where usage_event_id=$1`, [ev.id]);
+  await db.query(`update usage_events set status='voided', voided_by=$2, voided_at=$3, void_reason=$4 where id=$1`, [ev.id, ctx.userId, nowIso(), input.reason]);
+  await audit(db, ctx, 'usage.void', 'usage_event', ev.id, { reversed_movement: mv?.id ?? null, charge_voided: ch?.id ?? null }, { caseId: c.id, reason: input.reason });
+  return { usageEvent: await one(db, `select * from usage_events where id=$1`, [ev.id]), replayed: false };
+}
+
+/** A device event that could not be stored as usage is quarantined (never dropped) and surfaced to ops. */
+export async function quarantineSyncEvent(db: Db, ctx: Ctx, payload: any, reason: string) {
+  const id = String(payload?.clientEventId ?? '').slice(0, 100) || `missing-id-${Date.now()}`;
+  const r = await db.query(`insert into sync_quarantine(tenant_id, client_event_id, actor_user_id, payload, reason, received_at) values ($1,$2,$3,$4,$5,$6) on conflict (tenant_id, client_event_id) do nothing returning id`,
+    [ctx.tenantId, id, ctx.userId, payload ?? {}, reason, nowIso()]);
+  if (r.rows[0]) {
+    await raiseException(db, ctx.tenantId, { kind: 'sync_quarantine', severity: 'critical', title: `Field usage from ${ctx.displayName} could not be posted`, detail: `${reason}. The event (captured ${payload?.occurredAt ?? 'unknown time'}, ${payload?.disposition ?? 'unknown disposition'}) is held in quarantine for review; it was not discarded.`, refTable: 'sync_quarantine', refId: r.rows[0].id, ownerRole: 'ops_manager', dedupe: `quar:${id}` });
+    await audit(db, ctx, 'usage.sync_quarantined', 'sync_quarantine', r.rows[0].id, { reason });
+  }
+  return id;
 }

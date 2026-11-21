@@ -9,8 +9,8 @@
  */
 import { post } from './api';
 
-export type QueueState = 'pending' | 'synced' | 'needs_review';
-export interface QueuedEvent { clientEventId: string; userId: string; caseId: string; payload: any; state: QueueState; reason?: string | null; createdAt: string; syncedAt?: string }
+export type QueueState = 'pending' | 'synced' | 'needs_review' | 'rejected' | 'voided';
+export interface QueuedEvent { clientEventId: string; userId: string; caseId: string; payload: any; meta?: { ref?: string; serial?: string; lot?: string; label?: string }; state: QueueState; reason?: string | null; usageEventId?: string | null; createdAt: string; syncedAt?: string }
 
 const DB = 'tracewell-offline';
 function open(): Promise<IDBDatabase> {
@@ -52,7 +52,13 @@ export async function listQueue(userId: string, caseId?: string): Promise<Queued
   const all = await tx<QueuedEvent[]>('queue', 'readonly', (s) => s.index('byUser').getAll(userId));
   return (all ?? []).filter((e) => !caseId || e.caseId === caseId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
-async function update(e: QueuedEvent) { await tx('queue', 'readwrite', (s) => s.put(e)); }
+export async function update(e: QueuedEvent) { await tx('queue', 'readwrite', (s) => s.put(e)); }
+/** Only entries that never reached the server can be removed from the phone. */
+export async function removePending(clientEventId: string) {
+  const e = await tx<QueuedEvent>('queue', 'readonly', (s) => s.get(clientEventId));
+  if (!e || e.state !== 'pending') throw new Error('Only entries still saved on the phone can be removed; use Correct for server-confirmed entries.');
+  await tx('queue', 'readwrite', (s) => s.delete(clientEventId));
+}
 
 let syncing = false;
 /** Send pending events. Safe to call repeatedly: the server deduplicates by clientEventId. */
@@ -66,7 +72,7 @@ export async function syncQueue(userId: string): Promise<{ sent: number; results
     for (const r of res.results) {
       const e = pending.find((p) => p.clientEventId === r.clientEventId);
       if (!e) continue;
-      e.state = r.state; e.reason = r.reason ?? null; e.syncedAt = new Date().toISOString();
+      e.state = r.state; e.reason = r.reason ?? null; e.usageEventId = r.usageEventId ?? null; e.syncedAt = new Date().toISOString();
       await update(e);
     }
     return { sent: pending.length, results: res.results };

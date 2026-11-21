@@ -36,6 +36,10 @@ export const PERMS: Record<string, Role[]> = {
   'metrics.view': ['ops_manager', 'finance', 'quality_manager', 'inventory_coordinator'],
   'export.run': ['ops_manager', 'finance', 'quality_manager', 'inventory_coordinator', 'hospital_receiving', 'hospital_spd'],
   'audit.view': ['ops_manager', 'quality_manager', 'finance'],
+  'issue.assign': ['ops_manager', 'scheduler'],
+  'integration.view': ['ops_manager', 'finance', 'inventory_coordinator', 'quality_manager'],
+  'card.view': ['ops_manager', 'scheduler', 'rep', 'inventory_coordinator'],
+  'usage.void': ['ops_manager', 'rep'],
 };
 
 /** Admin inherits every distributor permission but never hospital-only decisions. */

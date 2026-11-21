@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useData, useMe, Status, Err } from '../App';
 import { api, fmtTime, post, uuid } from '../lib/api';
-import { enqueue, isOnline, listQueue, loadPackage, savePackage, syncQueue, QueuedEvent } from '../lib/offline';
+import { enqueue, isOnline, listQueue, loadPackage, savePackage, syncQueue, QueuedEvent, removePending, update as updateQueued } from '../lib/offline';
 import { buildGs1, parseScan, ParsedScan } from '../../shared/gs1';
 
 const DISPOSITIONS = [
@@ -54,6 +54,8 @@ export function Closeout() {
   const [parsed, setParsed] = useState<{ p: ParsedScan; match: any; raw: string; method: string } | null>(null);
   const [qty, setQty] = useState<string>('');
   const [manual, setManual] = useState({ ref: '', lot: '', serial: '', expiry: '', qty: '1' });
+  const [fast, setFast] = useState(() => localStorage.getItem('tw-fastscan') !== 'off');
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'dup' | 'warn'; text: string; id?: string } | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
   const userId = me.user.id;
 
@@ -90,28 +92,66 @@ export function Closeout() {
     if (pk) { const c = pkg.catalog.find((c: any) => c.id === pk.catalog_item_id); return { ...c, level: pk.level, units_per_package: pk.units_per_package, package_gtin: pk.gtin }; }
     return null;
   };
+  const live_entries = (q: QueuedEvent[]) => q.filter((e) => !['voided', 'rejected'].includes(e.state));
+  /** Same serial already captured on this phone or recorded on the server for this case? */
+  const priorSerial = (serial?: string) => {
+    if (!serial) return null;
+    const local = live_entries(queue).find((e) => e.meta?.serial === serial);
+    if (local) return `at ${fmtTime(local.payload.occurredAt)} on this phone`;
+    const srv = (pkg?.usage ?? []).find((u: any) => u.serial_number === serial && u.status === 'recorded');
+    return srv ? `by the server at ${fmtTime(srv.occurred_at)}` : null;
+  };
   const onScan = (value: string, method: string) => {
     setMsg(null); setErr(null);
     const p = parseScan(value, { referenceYear: new Date(serverNow()).getUTCFullYear() });
-    setParsed({ p, match: lookup(p), raw: value, method }); setQty('');
+    const match = lookup(p);
+    // Fast mode: a clean unit-level label is recorded immediately and the scanner stays ready for the next item.
+    if (fast && p.ok && match && match.units_per_package === 1 && match.item_type !== 'tray') {
+      const dup = match.tracking === 'serial' ? priorSerial(p.serial) : null;
+      if (dup) { setFeedback({ kind: 'dup', text: `Already recorded: ${match.ref} SN ${p.serial} was captured ${dup}. A serialized unit is used once, so this rescan was NOT saved again.` }); setRaw(''); setParsed(null); scanRef.current?.focus(); try { navigator.vibrate?.([80, 60, 80]); } catch { /* not supported */ } return; }
+      record({ entryMethod: method, rawScan: value }, { ref: match.ref, serial: p.serial, lot: p.lot, label: `${match.ref} ${p.serial ? 'SN ' + p.serial : 'lot ' + p.lot}` });
+      return;
+    }
+    setParsed({ p, match, raw: value, method }); setQty('');
   };
-  const record = async (payload: any) => {
+  const record = async (payload: any, meta: any = {}) => {
     const clientEventId = uuid();
     const body = { clientEventId, caseId: id, disposition: disp, occurredAt: serverNow(), ...payload };
-    await enqueue({ clientEventId, userId, caseId: id!, payload: body });
+    await enqueue({ clientEventId, userId, caseId: id!, payload: body, meta });
     window.dispatchEvent(new Event('tw-queue'));
     setParsed(null); setRaw(''); setQty('');
+    const nth = meta.lot && !meta.serial ? live_entries(await listQueue(userId, id)).filter((e) => e.meta?.lot === meta.lot && !e.meta?.serial).length : 0;
+    const what = `${disp.replace('_', ' ')} ${meta.label ?? (payload.manual ? payload.manual.ref : 'item')}${nth > 1 ? ` (unit ${nth} of lot ${meta.lot} on this case)` : ''}`;
+    setFeedback({ kind: 'ok', text: `Saved on phone: ${what}.`, id: clientEventId });
+    try { navigator.vibrate?.(40); } catch { /* not supported */ }
     if (isOnline()) {
-      try { const r = await syncQueue(userId); const res = r.results.find((x) => x.clientEventId === clientEventId); setMsg(res ? (res.state === 'synced' ? 'Recorded and synced.' : `Needs review: ${res.reason}`) : 'Queued.'); }
-      catch { setMsg('Saved on this device; will sync when the connection returns.'); }
-    } else setMsg('Offline: saved on this device with its original time. It will sync automatically.');
+      try {
+        const r = await syncQueue(userId); const res = r.results.find((x) => x.clientEventId === clientEventId);
+        if (res) setFeedback({ kind: res.state === 'synced' ? 'ok' : res.state === 'rejected' ? 'dup' : 'warn', text: res.state === 'synced' ? `Confirmed by server: ${what}.` : `${res.state === 'rejected' ? 'Not posted' : 'Waiting for review'}: ${what}. ${res.reason ?? ''}`, id: clientEventId });
+      } catch { setFeedback({ kind: 'ok', text: `Saved on phone: ${what}. Will send when the connection returns.`, id: clientEventId }); }
+    } else setFeedback({ kind: 'ok', text: `Saved on phone (offline): ${what}. Original time kept; it will send automatically.`, id: clientEventId });
     refreshQueue(); scanRef.current?.focus();
+  };
+  const removeEntry = async (e: QueuedEvent) => {
+    try { await removePending(e.clientEventId); setFeedback({ kind: 'warn', text: `Removed from phone: ${e.meta?.label ?? 'entry'} (it was never sent).` }); window.dispatchEvent(new Event('tw-queue')); refreshQueue(); }
+    catch (x: any) { setErr(x.message); }
+  };
+  const correctEntry = async (e: QueuedEvent) => {
+    const reason = prompt('Why is this line wrong? (e.g. scanned the wrong box)');
+    if (!reason) return;
+    try {
+      await post(`/api/usage/${e.usageEventId}/void`, { reason });
+      await updateQueued({ ...e, state: 'voided', reason: `Corrected: ${reason}` });
+      setFeedback({ kind: 'warn', text: `Corrected: ${e.meta?.label ?? 'line'} voided on the server; stock movement reversed and any draft charge voided.` });
+      refreshQueue(); loadAll();
+    } catch (x: any) { setErr(x.message); }
   };
   const recordScan = () => {
     if (!parsed) return;
     const isPkg = parsed.match && parsed.match.units_per_package > 1;
     if (isPkg && !qty) { setErr(`Package label (${parsed.match.units_per_package} units per package). Enter the number of individual units.`); return; }
-    record({ entryMethod: parsed.method, rawScan: parsed.raw, qtyUnits: qty ? Number(qty) : undefined });
+    if (parsed.match?.tracking === 'serial' && priorSerial(parsed.p.serial)) { setFeedback({ kind: 'dup', text: `Already recorded: SN ${parsed.p.serial} was captured ${priorSerial(parsed.p.serial)}. Not saved again.` }); setParsed(null); return; }
+    record({ entryMethod: parsed.method, rawScan: parsed.raw, qtyUnits: qty ? Number(qty) : undefined }, parsed.match ? { ref: parsed.match.ref, serial: parsed.p.serial, lot: parsed.p.lot, label: `${parsed.match.ref} ${parsed.p.serial ? 'SN ' + parsed.p.serial : 'lot ' + parsed.p.lot}` } : { label: 'unrecognized label' });
   };
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Many keyboard-wedge scanners emit the GS1 group separator (FNC1) as Ctrl+].
@@ -148,7 +188,9 @@ export function Closeout() {
       </section>
 
       <section className="card">
-        <h2>2. Scan the label</h2>
+        <h2>2. Scan the labels</h2>
+        <label className="row tight small"><input type="checkbox" checked={fast} onChange={(e) => { setFast(e.target.checked); localStorage.setItem('tw-fastscan', e.target.checked ? 'on' : 'off'); }} /> Fast scan: save each clean label immediately and stay ready for the next one</label>
+        {feedback && <div className={`scan-feedback fb-${feedback.kind}`} role="status" aria-live="assertive" data-testid="scan-feedback">{feedback.kind === 'ok' ? '✓ ' : feedback.kind === 'dup' ? '⚠ ' : '• '}{feedback.text}</div>}
         <label className="field" htmlFor="scan">Scanner input (keyboard wedge; press Enter)</label>
         <input id="scan" ref={scanRef} className="scanbox" autoComplete="off" autoCapitalize="off" spellCheck={false} value={raw} onChange={(e) => setRaw(e.target.value)} onKeyDown={onKeyDown} placeholder="Focus here and scan a GS1 DataMatrix" />
         <div className="row" style={{ marginTop: 8 }}>
@@ -187,13 +229,23 @@ export function Closeout() {
       </section>
 
       <section className="card">
-        <h2>Captured on this device ({pendingHere} pending)</h2>
-        {queue.map((q) => (
-          <div key={q.clientEventId} className="small" style={{ borderBottom: '1px solid #eee', padding: '6px 0' }} data-state={q.state}>
-            <Status s={q.state} /> {q.payload.disposition.replace('_', ' ')} · {q.payload.manual ? `manual ${q.payload.manual.ref}` : (q.payload.rawScan ?? '').replace(/\x1d/g, '<GS>')} · captured {fmtTime(q.payload.occurredAt)}{q.reason && <div className="sev-warning">{q.reason}</div>}
-          </div>))}
+        <h2>Captured for this case ({queue.filter((q) => !['voided'].includes(q.state)).length}{pendingHere ? `, ${pendingHere} only on this phone` : ''})</h2>
+        <p className="small muted"><strong>Saved on phone</strong> = not yet sent. <strong>Confirmed by server</strong> = stock and billing posted once. <strong>Waiting for review</strong> = held for a coordinator; nothing guessed.</p>
+        {queue.map((q) => {
+          const label: Record<string, string> = { pending: 'Saved on phone', synced: 'Confirmed by server', needs_review: 'Waiting for review', rejected: 'Not posted', voided: 'Corrected (voided)' };
+          const cls: Record<string, string> = { pending: 'pending', synced: 'synced', needs_review: 'needs_review', rejected: 'rejected', voided: 'cancelled' };
+          return (
+            <div key={q.clientEventId} className="small entry" data-state={q.state}>
+              <span className={`badge st-${cls[q.state]}`}>{label[q.state] ?? q.state}</span> <strong>{q.payload.disposition.replace('_', ' ')}</strong> {q.meta?.label ?? (q.payload.manual ? `manual ${q.payload.manual.ref}` : 'label')} · {fmtTime(q.payload.occurredAt)}
+              {q.reason && <div className={q.state === 'voided' ? 'muted' : 'sev-warning'}>{q.reason}</div>}
+              <div className="row tight">
+                {q.state === 'pending' && <button className="small-btn secondary" onClick={() => removeEntry(q)}>Remove (never sent)</button>}
+                {(q.state === 'synced' || q.state === 'needs_review') && q.usageEventId && isOnline() && <button className="small-btn secondary" onClick={() => correctEntry(q)}>Correct this line</button>}
+              </div>
+            </div>);
+        })}
         {!queue.length && <p className="muted small">Nothing captured yet.</p>}
-        {pendingHere > 0 && isOnline() && <button className="secondary" onClick={async () => { await syncQueue(userId); refreshQueue(); loadAll(); }}>Sync now</button>}
+        {pendingHere > 0 && isOnline() && <button className="secondary" onClick={async () => { await syncQueue(userId); refreshQueue(); loadAll(); }}>Send now</button>}
       </section>
 
       <section className="card">
@@ -237,6 +289,7 @@ function CameraScan({ onResult }: { onResult: (v: string) => void }) {
   const [note, setNote] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
+  const last = useRef<{ v: string; t: number }>({ v: '', t: 0 });
   const stop = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; setOn(false); };
   useEffect(() => stop, []);
   const start = async () => {
@@ -254,7 +307,8 @@ function CameraScan({ onResult }: { onResult: (v: string) => void }) {
         const loop = async () => {
           if (!stream.current || !video.current) return;
           const codes = await det.detect(video.current).catch(() => []);
-          if (codes.length) { onResult(codes[0].rawValue); stop(); return; }
+          // Continuous: keep the camera open for the next label; ignore the same code for 2.5 s.
+          if (codes.length) { const v = codes[0].rawValue; if (v !== last.current.v || Date.now() - last.current.t > 2500) { last.current = { v, t: Date.now() }; onResult(v); } }
           setTimeout(loop, 250);
         };
         loop();

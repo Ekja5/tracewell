@@ -4,6 +4,17 @@ import { now, nowIso } from '../clock.js';
 import { audit, notify } from '../audit.js';
 import { AVAILABILITY_SQL, lastVerification, localDate, reserve } from './inventory.js';
 import { getPolicy, getVisibleCase, fmtLocal } from './cases.js';
+import { receivingDeadline, nextReceivingOpen, fmtClock } from '../time.js';
+
+/** How much to trust a location's answer: physical evidence vs paperwork, and how old it is. */
+export function evidenceTier(kind: string | null, at: string | null, nowMs: number) {
+  if (!kind || !at) return { tier: 'none', text: 'No physical scan on record here' };
+  const ageMin = Math.round((nowMs - new Date(at).getTime()) / 60e3);
+  const age = ageMin < 60 ? `${ageMin} min ago` : ageMin < 48 * 60 ? `${Math.round(ageMin / 60)} h ago` : `${Math.round(ageMin / 1440)} days ago`;
+  if (/opening balance/.test(kind)) return { tier: 'unverified', text: `Never physically scanned here (opening import ${age})` };
+  const verb = /count/.test(kind) ? 'Counted here' : /tray/.test(kind) ? 'Tray contents checked here' : /receiv/.test(kind) ? 'Received and checked here' : 'Adjusted here';
+  return { tier: ageMin <= 120 ? 'fresh' : ageMin <= 24 * 60 ? 'recent' : 'stale', text: `${verb} ${age}` };
+}
 
 const HANDLING_MIN = 30; // seeded pick/pack/handoff allowance, labeled as an estimate
 
@@ -18,7 +29,7 @@ export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirement
   const req = await one(db, `select cr.*, ci.ref, ci.description, ci.item_type, ci.tracking from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.id=$1 and cr.case_id=$2`, [requirementId, caseId]);
   const policy = await getPolicy(db, c.facility_id);
   const start = new Date(c.scheduled_start);
-  const requiredBy = new Date(start.getTime() - (req.item_type === 'tray' ? policy.tray_due_hours_before : policy.implant_due_hours_before) * 3600e3);
+  const requiredBy = receivingDeadline(new Date(start.getTime() - (req.item_type === 'tray' ? policy.tray_due_hours_before : policy.implant_due_hours_before) * 3600e3), c.timezone, policy.receiving_open, policy.receiving_close).at;
   const plannedUse = localDate(start, c.timezone);
   const t = now();
   const already = (await one(db, `select coalesce(sum(qty),0)::int n from reservations where requirement_id=$1 and status='active'`, [requirementId])).n;
@@ -42,7 +53,10 @@ export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirement
     const ver = await lastVerification(db, b.stock_item_id, b.location_id);
     const atDestination = b.location_facility_id === c.facility_id;
     const travel = atDestination ? 0 : b.travel_min;
-    const arrival = travel != null ? new Date(t.getTime() + (travel + (atDestination ? 0 : HANDLING_MIN)) * 60e3) : null;
+    const rawArrival = travel != null ? new Date(t.getTime() + (travel + (atDestination ? 0 : HANDLING_MIN)) * 60e3) : null;
+    // A delivery that lands outside receiving hours is received at the next opening (overnight transfers).
+    const arrival = rawArrival && !atDestination ? nextReceivingOpen(rawArrival, c.timezone, policy.receiving_open, policy.receiving_close) : rawArrival;
+    const waitsForOpen = !!(rawArrival && arrival && arrival.getTime() !== rawArrival.getTime());
     const row: any = {
       stockItemId: b.stock_item_id, locationId: b.location_id, ownerPartyId: b.owner_party_id, label, serial: b.serial_number, lot: b.lot_number, expiry: b.expiry_date,
       location: b.location_name, locationCode: b.location_code, locationKind: b.location_kind, custodian: b.holder_name ?? (b.loc_facility_name ?? 'Distributor warehouse'),
@@ -50,6 +64,7 @@ export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirement
       hold: b.hold_reason, travelMinutes: travel, travelBasis: atDestination ? 'Already at the facility' : b.travel_basis, handlingMinutes: atDestination ? 0 : HANDLING_MIN,
       estimatedArrival: arrival?.toISOString() ?? null, meetsCutoff: arrival ? arrival <= requiredBy : false,
       lastVerifiedAt: ver?.at ?? null, lastVerifiedKind: ver?.kind ?? null, verificationAgeHours: ver ? Math.round((t.getTime() - new Date(ver.at).getTime()) / 36e5) : null,
+      evidence: evidenceTier(ver?.kind ?? null, ver?.at ?? null, t.getTime()), arrivalNote: waitsForOpen ? `Lands after receiving closes; received when ${c.facility_name} opens at ${fmtClock(policy.receiving_open)}` : null,
       incrementalCostCents: atDestination ? 0 : b.courier_cost_cents, expiryEligible: !b.expiry_date || b.expiry_date >= plannedUse,
       reservationConflicts: conflicts.map((x) => ({ caseRef: x.case_ref, caseId: x.id, when: fmtLocal(x.scheduled_start, x.timezone), facility: x.facility_name, qty: x.qty })),
       reasons: [] as string[],
@@ -131,7 +146,20 @@ export async function reserveAndTransfer(db: Db, ctx: Ctx, caseId: string, requi
   if (prior) return { shipment: prior, replayed: true };
   const preview = await previewTransfer(db, ctx, caseId, requirementId, src);
   const c = await getVisibleCase(db, ctx, caseId);
-  const { reservation } = await reserve(db, ctx, { caseId, requirementId, stockItemId: src.stockItemId, locationId: src.locationId, ownerPartyId: src.ownerPartyId, qty: 1, idempotencyKey: `${src.idempotencyKey}:resv` });
+  let reservation: any;
+  try {
+    ({ reservation } = await reserve(db, ctx, { caseId, requirementId, stockItemId: src.stockItemId, locationId: src.locationId, ownerPartyId: src.ownerPartyId, qty: 1, idempotencyKey: `${src.idempotencyKey}:resv` }));
+  } catch (e: any) {
+    if (!(e instanceof AppError) || e.status !== 409) throw e;
+    // Availability is rechecked at confirmation. Tell the loser who got it and what to do next.
+    const holder = await maybe(db, `select c2.case_ref, c2.scheduled_start, f2.timezone, u.display_name by_name, r.created_at from reservations r join cases c2 on c2.id=r.case_id join facilities f2 on f2.id=c2.facility_id join users u on u.id=r.created_by
+       where r.stock_item_id=$1 and r.status='active' order by r.created_at desc limit 1`, [src.stockItemId]);
+    const fresh = await rescueSearch(db, ctx, caseId, requirementId);
+    const next = fresh.eligible.slice(0, 3).map((x: any) => ({ label: x.label, location: x.location, travelMinutes: x.travelMinutes, meetsCutoff: x.meetsCutoff, stockItemId: x.stockItemId, locationId: x.locationId, ownerPartyId: x.ownerPartyId }));
+    const who = holder ? `${holder.by_name} reserved it for ${holder.case_ref} (${fmtLocal(holder.scheduled_start, holder.timezone)}) at ${fmtLocal(holder.created_at, holder.timezone)}` : 'Someone else reserved it first';
+    const nextTxt = next.length ? `Next eligible: ${next[0].label} at ${next[0].location} (${next[0].travelMinutes} min, ${next[0].meetsCutoff ? 'meets' : 'MISSES'} cutoff).` : 'No other eligible unit of this exact item exists; escalate to ops.';
+    throw new AppError(409, 'already_reserved', `That unit is no longer available. ${who}. ${nextTxt}`, { heldBy: holder, nextEligible: next });
+  }
   const dest = await one(db, `select id from locations where facility_id=$1 and kind='hospital_receiving' limit 1`, [c.facility_id]);
   let shipment: any = null;
   if (src.locationId !== dest.id) {
@@ -148,4 +176,45 @@ export async function reserveAndTransfer(db: Db, ctx: Ctx, caseId: string, requi
   }
   await notify(db, ctx.tenantId, c.rep_user_id, { kind: 'rescue', message: `Rescue transfer ${shipment?.ref ?? '(on site)'} created for ${c.case_ref}`, caseId, facilityId: c.facility_id, dedupe: `xfr-rep:${shipment?.id ?? reservation.id}` });
   return { shipment, reservation, preview, replayed: false };
+}
+
+/**
+ * Exact catalog-number (or GTIN) availability for a rep. With a case that requires the item, this is
+ * the full rescue ranking (cutoff, travel, evidence, cost). Without one, it lists every unit of that
+ * exact item with usable quantity, custodian, physical-evidence freshness and why it is or is not usable.
+ */
+export async function exactItemAvailability(db: Db, ctx: Ctx, input: { q: string; caseId?: string | null }) {
+  requirePerm(ctx, 'rescue.search');
+  const q = String(input.q ?? '').trim();
+  if (!q) throw new AppError(400, 'query_required', 'Enter an exact catalog number or GTIN');
+  const item = await maybe(db, `select ci.* from catalog_items ci where lower(ci.ref)=lower($1) or ci.unit_gtin=$1
+     union select ci.* from packages p join catalog_items ci on ci.id=p.catalog_item_id where p.gtin=$1 limit 1`, [q]);
+  if (!item) return { mode: 'none', message: `No catalog item matches "${q}" exactly. Search by exact catalog number or GTIN; substitutes are never suggested.` };
+  if (input.caseId) {
+    const c = await getVisibleCase(db, ctx, input.caseId);
+    const req = await maybe(db, `select id from case_requirements where case_id=$1 and catalog_item_id=$2 and active`, [c.id, item.id]);
+    if (req) return { mode: 'case', item, ...(await rescueSearch(db, ctx, c.id, req.id)) };
+  }
+  const t = now();
+  const bals = await rows(db, `select a.*, s.serial_number, s.lot_number, s.expiry_date, p.name owner_name, p.kind owner_kind, hu.display_name holder_name, fac.name loc_facility_name,
+      (select h.reason from quality_holds h where h.stock_item_id=a.stock_item_id and h.status='active' limit 1) hold_reason,
+      (select string_agg(c2.case_ref, ', ') from reservations r join cases c2 on c2.id=r.case_id where r.stock_item_id=a.stock_item_id and r.location_id=a.location_id and r.status='active') reserved_for
+    from (${AVAILABILITY_SQL}) a join stock_items s on s.id=a.stock_item_id join parties p on p.id=a.owner_party_id
+    left join users hu on hu.id=a.holder_user_id left join facilities fac on fac.id=a.location_facility_id
+    where s.catalog_item_id=$1 and a.location_kind not in ('consumed','wasted','missing') order by a.location_code`, [item.id]);
+  const out: any[] = [];
+  for (const b of bals) {
+    const ver = await lastVerification(db, b.stock_item_id, b.location_id);
+    const usable = b.on_hold || b.condition !== 'sealed' || !b.allocatable || (b.expiry_date && b.expiry_date < localDate(t, 'America/Chicago')) ? 0 : Math.max(0, b.on_hand - b.reserved);
+    const why: string[] = [];
+    if (b.on_hold) why.push(`On quality hold: ${b.hold_reason}`);
+    if (b.condition !== 'sealed') why.push(`Condition ${b.condition}`);
+    if (!b.allocatable) why.push(`${b.location_kind.replace('_', ' ')} stock is not allocatable`);
+    if (b.expiry_date && b.expiry_date < localDate(t, 'America/Chicago')) why.push(`Expired ${b.expiry_date}`);
+    if (b.reserved_for) why.push(`Reserved for ${b.reserved_for}`);
+    out.push({ stockItemId: b.stock_item_id, label: b.serial_number ? `SN ${b.serial_number}` : `lot ${b.lot_number}`, lot: b.lot_number, expiry: b.expiry_date, location: b.location_name, locationKind: b.location_kind,
+      custodian: b.holder_name ?? b.loc_facility_name ?? 'Distributor warehouse', owner: b.owner_name, onHand: b.on_hand, reserved: b.reserved, usable, whyNot: why,
+      evidence: evidenceTier(ver?.kind ?? null, ver?.at ?? null, t.getTime()), lastVerifiedAt: ver?.at ?? null });
+  }
+  return { mode: 'stock', item, rows: out, usableTotal: out.reduce((a, r) => a + r.usable, 0), note: 'Pick one of your cases to see arrival estimates against that facility\'s cutoff.' };
 }

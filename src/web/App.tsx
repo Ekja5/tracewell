@@ -13,7 +13,10 @@ import { Finance, CaseFinance } from './pages/Finance';
 import { Quality, RecallDetail } from './pages/Quality';
 import { ImportPage } from './pages/Import';
 import { Counts, CountDetail } from './pages/Counts';
-import { Inventory, Exceptions, Integrations, Metrics, SearchPage, Notifications, Cases, UsageReview } from './pages/Misc';
+import { Inventory, Exceptions, Integrations, Metrics, SearchPage, Cases, UsageReview } from './pages/Misc';
+import { Handoff, Alerts } from './pages/Ops';
+import { FindItem } from './pages/FindItem';
+import { FinanceQueue } from './pages/Finance';
 
 export interface Me { user: any; perms: string[]; now: string; demoClock: boolean; demoShortcuts: boolean }
 const MeCtx = createContext<{ me: Me; can: (p: string) => boolean; refresh: () => void } | null>(null);
@@ -83,6 +86,8 @@ function SyncBar({ me }: { me: Me }) {
 const NAV: { to: string; label: string; perm?: string; roles?: string[] }[] = [
   { to: '/', label: 'Readiness', perm: 'board.view' },
   { to: '/today', label: 'My cases', roles: ['rep'] },
+  { to: '/find', label: 'Find exact item', perm: 'rescue.search' },
+  { to: '/handoff', label: 'Shift handoff', perm: 'board.view' },
   { to: '/cases', label: 'Cases', perm: 'case.manage' },
   { to: '/pick', label: 'Pick queue', perm: 'shipment.pick' },
   { to: '/shipments', label: 'Shipments' },
@@ -90,9 +95,10 @@ const NAV: { to: string; label: string; perm?: string; roles?: string[] }[] = [
   { to: '/import', label: 'Import', perm: 'import.run' },
   { to: '/counts', label: 'Counts', perm: 'count.perform' },
   { to: '/finance', label: 'Finance', perm: 'finance.manage' },
+  { to: '/finance/queue', label: 'Billing line queue', perm: 'finance.manage' },
   { to: '/quality', label: 'Quality', perm: 'recall.task' },
   { to: '/exceptions', label: 'Exceptions' },
-  { to: '/integrations', label: 'Integrations' },
+  { to: '/integrations', label: 'Integrations', perm: 'integration.view' },
   { to: '/metrics', label: 'Scorecard', perm: 'metrics.view' },
 ];
 
@@ -103,7 +109,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
   const [q, setQ] = useState('');
   const [menu, setMenu] = useState(false);
   const notes = useData<any[]>('/api/notifications', [loc.pathname]);
-  const unread = (notes.data ?? []).filter((n) => !n.read_at).length;
+  const unread = (notes.data ?? []).filter((n) => !n.read_at && n.status !== 'closed').length;
   useEffect(() => { setMenu(false); }, [loc.pathname]);
   useEffect(() => { if (me.user.role === 'rep') requestPersistence(); }, []);
   const logout = async () => { await clearForUser(me.user.id).catch(() => {}); localStorage.removeItem('tw-me'); await post('/api/auth/logout').catch(() => {}); location.href = '/login'; };
@@ -154,7 +160,10 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/metrics" element={<Metrics />} />
             <Route path="/search" element={<SearchPage />} />
-            <Route path="/notifications" element={<Notifications reload={notes.reload} />} />
+            <Route path="/notifications" element={<Alerts reload={notes.reload} />} />
+            <Route path="/handoff" element={<Handoff />} />
+            <Route path="/find" element={<FindItem />} />
+            <Route path="/finance/queue" element={<FinanceQueue />} />
             <Route path="*" element={<p>Page not found. <Link to="/">Go to readiness board</Link></p>} />
           </Routes>
         </main>

@@ -83,3 +83,30 @@ select, input, textarea { max-width:100%; }
 .card, main, .row > * { min-width:0; }
 label.field { min-width:0; max-width:100%; }
 @media (max-width:760px) { .row { flex-direction:column; align-items:stretch; } .row > label.toggle { margin-left:0; } .disp-grid button { padding:8px; } }
+/* Second pass: issues, evidence freshness, scan feedback, finance queue */
+.row.tight { gap:6px; }
+.small-btn { min-height:40px; padding:4px 12px; font-size:.9rem; }
+ol.issues { list-style:none; padding:0; margin:8px 0; }
+li.issue, section.issue { border-left:5px solid var(--line); padding:8px 10px; margin-bottom:8px; background:#fafbfc; border-radius:6px; }
+.sev-border-critical { border-left-color:var(--red) !important; }
+.sev-border-warning { border-left-color:#d49b19 !important; }
+.issue-controls { margin-top:6px; }
+ol.history { margin:6px 0; padding-left:18px; } ol.history li { margin-bottom:3px; }
+.evidence { display:inline-block; padding:2px 8px; border-radius:6px; border:1px solid; }
+.ev-fresh { background:#dcf1e4; border-color:#3b9a5f; color:#14532d; }
+.ev-recent { background:#eef5fb; border-color:#6aa0cf; color:#123d63; }
+.ev-stale { background:#fff1d1; border-color:#d49b19; color:#6b4600; }
+.ev-none { background:#f1f1f1; border-color:#999; color:#333; border-style:dashed; }
+.evidence-stale { background:#fff8e6; border:1px dashed #d49b19; padding:6px 8px; border-radius:6px; }
+.scan-feedback { font-size:1.05rem; font-weight:600; padding:12px; border-radius:8px; margin:8px 0; }
+.fb-ok { background:#dcf1e4; border:2px solid #3b9a5f; color:#14532d; }
+.fb-dup { background:#fde2df; border:2px solid var(--red); color:#7a120c; }
+.fb-warn { background:#fff1d1; border:2px solid #d49b19; color:#6b4600; }
+.entry { border-bottom:1px solid #eee; padding:6px 0; }
+.unread { border-left:4px solid var(--brand); }
+.card.avail.unusable { opacity:.85; background:#f7f7f7; }
+.stages { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.stage { padding:6px 10px; border-radius:16px; border:1px solid var(--line); font-size:.88rem; background:#fff; }
+.stage.done { background:#dcf1e4; border-color:#9ad0ae; }
+.stage.warn { background:#fde2df; border-color:#ef9e96; }
+button.linkish { background:none; border:0; color:var(--brand); text-decoration:underline; padding:0; min-height:auto; font:inherit; cursor:pointer; }

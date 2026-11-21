@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useData, useMe, Status, Err } from '../App';
 import { fmtTime, post } from '../lib/api';
+import { IssueControls, IssueHistory } from '../components/IssueControls';
 
 export function CaseDetail() {
   const { id } = useParams();
@@ -29,11 +30,18 @@ export function CaseDetail() {
       {msg && <div className="ok" role="status">{msg}</div>}<Err e={err} />
 
       <section className="card">
-        <h2>Blockers</h2>
+        <h2>Open issues ({r.blockers.length})</h2>
         {r.blockers.length === 0 ? <p className="ok">No outstanding blockers. Every mandatory item is at the facility, verified{data.policy.requires_release_decision ? ', and released by the hospital' : ''}.</p> : (
-          <ul className="blockers">{r.blockers.map((b: any, i: number) => (
-            <li key={i}><span className={`sev-${b.severity}`}>{b.severity}</span>: {b.message} <span className="small">Owner: <strong>{b.owner}</strong>{b.actBy ? ` · act by ${fmtTime(b.actBy, tz)}` : ''}</span> {b.link && b.link !== `/cases/${c.id}` && <Link to={b.link}>{b.action}</Link>}</li>))}
-          </ul>)}
+          <ol className="issues">{r.blockers.map((b: any, i: number) => (
+            <li key={b.key ?? i} className={`issue sev-border-${b.severity}`}>
+              <div><span className={`sev-${b.severity}`}>{b.severity === 'critical' ? 'Critical' : 'Warning'}:</span> {b.explanation}</div>
+              <IssueControls b={b} tz={tz} assignable={data.assignable} onDone={reload} />
+              <details><summary className="small">What happened so far</summary><IssueHistory history={data.issues.find((x: any) => x.id === b.issueId)?.history} tz={tz} /></details>
+            </li>))}
+          </ol>)}
+        {r.staleEvidence?.length > 0 && <p className="small evidence-stale">Evidence to re-check: {r.staleEvidence.map((s: any) => `${s.label} at ${s.location}: ${s.kind}`).join('; ')}.</p>}
+        {data.issues.filter((i: any) => i.status === 'resolved').length > 0 && <details><summary className="small">Resolved issues ({data.issues.filter((i: any) => i.status === 'resolved').length})</summary>
+          {data.issues.filter((i: any) => i.status === 'resolved').map((i: any) => <div key={i.id} className="small" style={{ marginBottom: 6 }}><strong>{i.code.replace(/_/g, ' ')}</strong>: {i.resolution} ({fmtTime(i.resolved_at, tz)})<IssueHistory history={i.history} tz={tz} /></div>)}</details>}
         <p className="small muted">Most recent physical verification: {r.lastVerification ? `${r.lastVerification.kind}, ${r.lastVerification.what}, ${fmtTime(r.lastVerification.at, tz)}` : 'none on record'}.</p>
       </section>
 
@@ -109,19 +117,26 @@ function ReleaseForm({ caseId, trays, evidence, onDone }: { caseId: string; tray
 }
 
 function ScheduleForms({ c, catalog, act }: { c: any; catalog: any[]; act: (fn: () => Promise<any>, ok?: (r: any) => string) => void }) {
-  const toLocalInput = (iso: string) => new Date(iso).toISOString().slice(0, 16);
-  const [when, setWhen] = useState(toLocalInput(c.scheduled_start));
+  // Facility-local wall time: what the scheduler sees on the OR schedule.
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: c.timezone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(c.scheduled_start)).map((p) => [p.type, p.value]));
+  const [when, setWhen] = useState(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`);
+  const toUtc = (local: string) => {
+    const guess = new Date(local + ':00Z');
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: c.timezone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(guess).map((x) => [x.type, x.value]));
+    const asLocal = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute);
+    return new Date(guess.getTime() + (guess.getTime() - asLocal)).toISOString();
+  };
   const [reason, setReason] = useState('');
   const [req, setReq] = useState(catalog[0]?.id ?? '');
   const [qty, setQty] = useState(1);
   return (
     <section className="card">
       <h2>Schedule changes</h2>
-      <p className="small muted">Times below are entered in UTC (shown in facility time elsewhere). Moving or changing a case recalculates reservations and alerts owners.</p>
+      <p className="small muted">Enter the new start in {c.facility_name} local time ({c.timezone}). Moving a case recalculates every reservation, delivery cutoff and owner deadline, and updates the owners' alerts.</p>
       <div className="row">
-        <label className="field">New start (UTC)<input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></label>
+        <label className="field">New start (facility local time)<input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></label>
         <label className="field">Reason<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. OR block moved" /></label>
-        <button onClick={() => act(() => post(`/api/cases/${c.id}/move`, { scheduledStart: new Date(when + 'Z').toISOString(), reason, expectedVersion: c.version }), (r) => `Moved. ${r.conflicts.length ? 'Conflicts: ' + r.conflicts.map((x: any) => x.message).join('; ') : 'No conflicts.'}`)}>Move case</button>
+        <button onClick={() => act(() => post(`/api/cases/${c.id}/move`, { scheduledStart: toUtc(when), reason, expectedVersion: c.version }), (r) => `Moved. ${r.conflicts.length ? 'Conflicts: ' + r.conflicts.map((x: any) => x.message).join('; ') : 'No conflicts.'}`)}>Move case</button>
         <button className="danger" onClick={() => act(() => post(`/api/cases/${c.id}/cancel`, { reason, expectedVersion: c.version }), (r) => `Cancelled. ${r.released} reservation(s) released.`)}>Cancel case</button>
       </div>
       <div className="row" style={{ marginTop: 10 }}>

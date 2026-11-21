@@ -10,15 +10,16 @@ import { can, caseScope, Ctx, isFacilityUser, PERMS, requirePerm } from './perms
 import { now, refreshClock, nowIso } from './clock.js';
 import { audit } from './audit.js';
 import { runImport, suggestMapping, templateCsv, TEMPLATES, ImportKind, csvCell } from './domain/imports.js';
-import { cancelCase, caseReadiness, createCase, getVisibleCase, moveCase, readinessBoard, updateRequirement, analyzeConflicts, fmtLocal, getPolicy } from './domain/cases.js';
-import { previewTransfer, reserveAndTransfer, rescueSearch } from './domain/rescue.js';
+import { readinessWithIssues, cancelCase, caseReadiness, createCase, getVisibleCase, moveCase, readinessBoard, updateRequirement, analyzeConflicts, fmtLocal, getPolicy } from './domain/cases.js';
+import { previewTransfer, reserveAndTransfer, rescueSearch, exactItemAvailability } from './domain/rescue.js';
 import * as ship from './domain/shipments.js';
-import { closeoutState, recordInstrumentReturn, recordUsage, reviewUsage, submitCloseout } from './domain/closeout.js';
+import { closeoutState, recordInstrumentReturn, recordUsage, reviewUsage, submitCloseout, voidUsage, quarantineSyncEvent } from './domain/closeout.js';
 import * as bill from './domain/billing.js';
 import * as rec from './domain/recall.js';
 import * as counts from './domain/counts.js';
 import { ingestAck, integrationStatus, processOutboxForTenant, runSimulatedScheduleSync } from './domain/erp.js';
 import { computeMetrics } from './domain/metrics.js';
+import * as issues from './domain/issues.js';
 import { AVAILABILITY_SQL, ledgerReconciliation, reverseMovement, reserve } from './domain/inventory.js';
 import { parseScan } from '../shared/gs1.js';
 
@@ -106,9 +107,10 @@ export async function buildApp() {
     const parties = await rows(db, `select * from parties order by name`);
     const catalog = await rows(db, `select ci.*, p.name manufacturer from catalog_items ci left join parties p on p.id=ci.manufacturer_party_id order by ci.item_type, ci.ref`);
     const cards = isFacilityUser(ctx) ? [] : await rows(db, `select pc.*, v.id version_id, v.version, v.status, v.approved_at, u.display_name approved_by_name from preference_cards pc join preference_card_versions v on v.card_id=pc.id left join users u on u.id=v.approved_by order by pc.code, v.version`);
-    return { facilities, locations, reps, parties, catalog, cards, now: nowIso() };
+    const assignable = isFacilityUser(ctx) ? [] : await rows(db, `select id, display_name, role, facility_id from users where active and tenant_id=$1 order by role, display_name`, [ctx.tenantId]);
+    return { facilities, locations, reps, parties, catalog, cards, assignable, now: nowIso() };
   });
-  r('GET', '/api/cards/:versionId', null, async (db, ctx, req) => {
+  r('GET', '/api/cards/:versionId', 'card.view', async (db, ctx, req) => {
     const v = await one(db, `select v.*, pc.code, pc.surgeon_ref, pc.procedure, u.display_name approved_by_name from preference_card_versions v join preference_cards pc on pc.id=v.card_id left join users u on u.id=v.approved_by where v.id=$1`, [P(req).versionId]);
     const lines = await rows(db, `select l.*, ci.ref, ci.description, ci.item_type, b.id backup_for, bci.ref backup_for_ref from preference_card_lines l join catalog_items ci on ci.id=l.catalog_item_id left join preference_card_lines b on b.id=l.backup_for_line_id left join catalog_items bci on bci.id=b.catalog_item_id where l.card_version_id=$1 order by l.mandatory desc, ci.item_type desc`, [v.id]);
     return { version: v, lines };
@@ -135,7 +137,8 @@ export async function buildApp() {
   r('POST', '/api/cases', 'case.manage', async (db, ctx, req) => createCase(db, ctx, B(req)));
   r('GET', '/api/cases/:id', 'board.view', async (db, ctx, req) => {
     const c = await getVisibleCase(db, ctx, P(req).id);
-    const readiness = await caseReadiness(db, c.id);
+    const readiness = await readinessWithIssues(db, ctx.tenantId, c.id);
+    const caseIssues = await issues.issuesForCase(db, c.id);
     const policy = await getPolicy(db, c.facility_id);
     const requirements = await rows(db, `select cr.*, ci.ref, ci.description, ci.item_type from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.case_id=$1 and cr.active order by cr.mandatory desc, ci.item_type desc, ci.ref`, [c.id]);
     const reservations = await rows(db, `select r.*, ci.ref, ci.item_type, s.serial_number, s.lot_number, s.expiry_date, l.name location_name from reservations r join stock_items s on s.id=r.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id join locations l on l.id=r.location_id where r.case_id=$1 order by r.created_at`, [c.id]);
@@ -145,7 +148,8 @@ export async function buildApp() {
     const card = c.preference_card_version_id ? await maybe(db, `select v.version, v.approved_at, pc.code, u.display_name approved_by_name from preference_card_versions v join preference_cards pc on pc.id=v.card_id left join users u on u.id=v.approved_by where v.id=$1`, [c.preference_card_version_id]) : null;
     const timeline = can(ctx, 'audit.view') || ctx.role === 'rep' ? await rows(db, `select a.action, a.occurred_at, a.recorded_at, a.reason, u.display_name actor from audit_log a left join users u on u.id=a.actor_user_id where a.case_id=$1 order by a.recorded_at desc limit 100`, [c.id]) : [];
     const trays = reservations.filter((x) => x.item_type === 'tray' && x.status === 'active');
-    return { case: c, readiness, policy, requirements, reservations, shipments, discrepancies, releases, card, timeline, trays };
+    const assignable = isFacilityUser(ctx) ? [] : await rows(db, `select id, display_name, role from users where active and (facility_id is null or facility_id=$1) order by role, display_name`, [c.facility_id]);
+    return { case: c, readiness, issues: caseIssues, assignable, policy, requirements, reservations, shipments, discrepancies, releases, card, timeline, trays };
   });
   r('POST', '/api/cases/:id/move', 'case.manage', async (db, ctx, req) => moveCase(db, ctx, P(req).id, B(req)));
   r('POST', '/api/cases/:id/cancel', 'case.manage', async (db, ctx, req) => cancelCase(db, ctx, P(req).id, B(req)));
@@ -155,7 +159,14 @@ export async function buildApp() {
   r('POST', '/api/cases/:id/reserve', 'reservation.manage', async (db, ctx, req) => { await getVisibleCase(db, ctx, P(req).id); return reserve(db, ctx, { ...B(req), caseId: P(req).id }); });
   r('POST', '/api/cases/:id/release', 'hospital.release', async (db, ctx, req) => ship.recordRelease(db, ctx, P(req).id, B(req)));
 
+  // ---------------- Issues (ownership, acknowledgment, handoff) ----------------
+  r('POST', '/api/issues/:id/ack', null, async (db, ctx, req) => issues.acknowledgeIssue(db, ctx, P(req).id, B(req)));
+  r('POST', '/api/issues/:id/assign', 'issue.assign', async (db, ctx, req) => issues.assignIssue(db, ctx, P(req).id, B(req)));
+  r('POST', '/api/issues/:id/note', null, async (db, ctx, req) => issues.noteIssue(db, ctx, P(req).id, B(req)));
+  r('GET', '/api/handoff', 'board.view', async (db, ctx, req) => issues.handoff(db, ctx, Math.min(72, Number(Q(req).hours ?? 12))));
+
   // ---------------- Rescue ----------------
+  r('GET', '/api/availability', 'rescue.search', async (db, ctx, req) => exactItemAvailability(db, ctx, { q: Q(req).q, caseId: Q(req).caseId || null }));
   r('GET', '/api/cases/:id/rescue/:reqId', 'rescue.search', async (db, ctx, req) => rescueSearch(db, ctx, P(req).id, P(req).reqId));
   r('POST', '/api/cases/:id/rescue/:reqId/preview', 'rescue.search', async (db, ctx, req) => previewTransfer(db, ctx, P(req).id, P(req).reqId, B(req)));
   r('POST', '/api/cases/:id/rescue/:reqId/reserve', 'rescue.reserve', async (db, ctx, req) => reserveAndTransfer(db, ctx, P(req).id, P(req).reqId, B(req)));
@@ -192,6 +203,8 @@ export async function buildApp() {
   r('POST', '/api/cases/:id/usage', 'closeout.record', async (db, ctx, req) => recordUsage(db, ctx, { ...B(req), caseId: P(req).id, offline: false }));
   r('POST', '/api/cases/:id/instrument-return', 'closeout.record', async (db, ctx, req) => recordInstrumentReturn(db, ctx, P(req).id, B(req)));
   r('POST', '/api/cases/:id/closeout/submit', 'closeout.record', async (db, ctx, req) => submitCloseout(db, ctx, P(req).id, B(req)));
+  r('POST', '/api/usage/:id/void', 'usage.void', async (db, ctx, req) => voidUsage(db, ctx, P(req).id, B(req)));
+  r('GET', '/api/sync-quarantine', 'usage.review', async (db) => rows(db, `select q.*, u.display_name actor from sync_quarantine q join users u on u.id=q.actor_user_id order by q.received_at desc limit 200`));
   r('POST', '/api/usage/:id/review', 'usage.review', async (db, ctx, req) => reviewUsage(db, ctx, P(req).id, B(req)));
   r('POST', '/api/scan/parse', null, async (db, ctx, req) => {
     const p = parseScan(String(B(req).raw ?? ''), { referenceYear: now().getUTCFullYear() });
@@ -223,10 +236,12 @@ export async function buildApp() {
         await db.query('savepoint ev');
         const res = await recordUsage(db, ctx, { ...e, offline: true });
         await db.query('release savepoint ev');
-        results.push({ clientEventId: e.clientEventId, state: res.status === 'recorded' ? 'synced' : 'needs_review', replayed: res.replayed, reason: res.reviewReason, usageEventId: res.usageEvent.id });
+        results.push({ clientEventId: e.clientEventId, state: res.status === 'recorded' ? 'synced' : res.status === 'rejected' ? 'rejected' : res.status === 'voided' ? 'voided' : 'needs_review', replayed: res.replayed, reason: res.reviewReason, usageEventId: res.usageEvent.id });
       } catch (err: any) {
         await db.query('rollback to savepoint ev');
-        results.push({ clientEventId: e.clientEventId, state: 'needs_review', reason: err instanceof AppError ? err.message : 'Server could not apply this event' });
+        const reason = err instanceof AppError ? err.message : 'Server could not apply this event';
+        await quarantineSyncEvent(db, ctx, e, reason);
+        results.push({ clientEventId: e.clientEventId, state: 'needs_review', quarantined: true, reason: `${reason}. Held on the server for ops review; not lost.` });
       }
     }
     return { serverTime: nowIso(), results };
@@ -234,6 +249,8 @@ export async function buildApp() {
 
   // ---------------- Finance ----------------
   r('GET', '/api/finance/worklist', 'finance.manage', async (db, ctx) => bill.financeWorklist(db, ctx));
+  r('GET', '/api/finance/lines', 'finance.manage', async (db, ctx) => bill.financeLines(db, ctx));
+  r('POST', '/api/charges/:id/assign', 'finance.manage', async (db, ctx, req) => bill.assignCharge(db, ctx, P(req).id, B(req)));
   r('GET', '/api/cases/:id/financials', null, async (db, ctx, req) => {
     if (!can(ctx, 'finance.manage') && !can(ctx, 'closeout.record')) throw new AppError(403, 'forbidden', 'Not permitted');
     await getVisibleCase(db, ctx, P(req).id);
@@ -347,13 +364,14 @@ export async function buildApp() {
     await audit(db, ctx, 'exception.resolve', 'exception', e.id, {}, { caseId: e.case_id, reason: B(req).resolution });
     return { ok: true };
   });
-  r('GET', '/api/notifications', null, async (db, ctx) => rows(db, `select n.*, c.case_ref from notifications n left join cases c on c.id=n.case_id where n.user_id=$1 order by n.created_at desc limit 100`, [ctx.userId]));
+  r('GET', '/api/notifications', null, async (db, ctx) => rows(db, `select n.*, c.case_ref, i.status issue_status, i.escalation_level from notifications n left join cases c on c.id=n.case_id left join case_issues i on i.id=n.issue_id
+     where n.user_id=$1 order by (n.status='active') desc, coalesce(n.last_at, n.created_at) desc limit 150`, [ctx.userId]));
   r('POST', '/api/notifications/read', null, async (db, ctx) => { await db.query(`update notifications set read_at=$2 where user_id=$1 and read_at is null`, [ctx.userId, nowIso()]); return { ok: true }; });
   r('GET', '/api/audit', 'audit.view', async (db, ctx, req) => rows(db, `select a.*, u.display_name actor from audit_log a left join users u on u.id=a.actor_user_id where ($1::uuid is null or a.case_id=$1) order by a.id desc limit 300`, [Q(req).caseId ?? null]));
   r('GET', '/api/usage-review', 'usage.review', async (db) => rows(db, `select ue.*, c.case_ref, ci.ref from usage_events ue join cases c on c.id=ue.case_id left join catalog_items ci on ci.id=ue.catalog_item_id where ue.status='needs_review' order by ue.recorded_at`));
 
   // ---------------- Integrations (all simulated) ----------------
-  r('GET', '/api/integrations', null, async (db) => integrationStatus(db));
+  r('GET', '/api/integrations', 'integration.view', async (db) => integrationStatus(db));
   r('POST', '/api/integrations/:feedId/simulate-sync', 'integration.manage', async (db, ctx, req) => runSimulatedScheduleSync(db, ctx, P(req).feedId));
   r('POST', '/api/integrations/erp/fail-next', 'integration.manage', async (db, ctx, req) => {
     await db.query(`update integration_feeds set mock_fail_next=$1 where code='erp-mock'`, [Math.min(10, Number(B(req).count ?? 1))]);
@@ -373,7 +391,10 @@ export async function buildApp() {
     let head: string[] = []; let data: any[] = [];
     if (name === 'cases.csv') {
       const [scope, sp] = caseScope(ctx, 1);
-      data = await rows(db, `select c.case_ref, f.name facility, c.status, c.scheduled_start, c.procedure, c.surgeon_ref, u.display_name rep from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id where ${scope} order by c.scheduled_start`, sp);
+      // Optional facility filter (code) is intersected with, never substituted for, the caller's scope.
+      const facFilter = Q(req).facility ? String(Q(req).facility) : null;
+      const fi = sp.length + 1;
+      data = await rows(db, `select c.case_ref, f.name facility, c.status, c.scheduled_start, c.procedure, c.surgeon_ref, u.display_name rep from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id where ${scope} and ($${fi}::text is null or f.code=$${fi}) order by c.scheduled_start`, [...sp, facFilter]);
       head = ['case_ref', 'facility', 'status', 'scheduled_start', 'procedure', 'surgeon_ref', 'rep'];
     } else if (name === 'balances.csv' && !isFacilityUser(ctx)) {
       data = await rows(db, `select ci.ref, s.serial_number, s.lot_number, s.expiry_date, l.code location, p.name owner, b.condition, b.qty from stock_balances b join stock_items s on s.id=b.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id join locations l on l.id=b.location_id join parties p on p.id=b.owner_party_id where b.qty>0 order by ci.ref, l.code`);
