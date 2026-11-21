@@ -86,7 +86,7 @@ function SyncBar({ me }: { me: Me }) {
 const NAV: { to: string; label: string; perm?: string; roles?: string[] }[] = [
   { to: '/', label: 'Readiness', perm: 'board.view' },
   { to: '/today', label: 'My cases', roles: ['rep'] },
-  { to: '/find', label: 'Find exact item', perm: 'rescue.search' },
+  { to: '/find', label: 'Item finder', perm: 'rescue.search' },
   { to: '/handoff', label: 'Shift handoff', perm: 'board.view' },
   { to: '/cases', label: 'Cases', perm: 'case.manage' },
   { to: '/pick', label: 'Pick queue', perm: 'shipment.pick' },

@@ -61,15 +61,20 @@ say(`- Move API: ${mv.code}; conflicts returned: ${JSON.stringify(mv.body.confli
 const after = (await ops.get('/api/board')).body.cases.find((c: any) => c.caseRef === 'SYN-1001');
 say(`- Board status before/after: ${before.status} → ${after.status}. Next action: "${after.nextAction?.action}" owner "${after.nextAction?.owner}" act by ${after.nextAction?.actBy}`);
 say(`- Next action names a person: ${/[A-Z][a-z]+ [A-Z][a-z]+/.test(after.nextAction?.owner ?? '') ? 'yes' : 'NO (role label only)'}; owner can be assigned/acknowledged from board: ${has(after, 'issues') || has(after.blockers?.[0] ?? {}, 'issueId') ? 'yes' : 'NO'}`);
+if (after.nextAction?.explanation) say(`- Board explanation: "${after.nextAction.explanation}"`);
+const affected = await q1(`select distinct u.display_name from case_issues i join users u on u.id=i.owner_user_id where i.case_id=$1 and i.status<>'resolved'`, [c1]);
+if (affected.length) say(`- People who own an open item on this case after the move: ${affected.map((x: any) => x.display_name).join(', ')}`);
+const dl = (await q1(`select count(*)::int n from issue_events e join case_issues i on i.id=e.issue_id where i.case_id=$1 and e.kind='deadline_changed'`, [c1]).catch(() => [{ n: 0 }]))[0].n;
+say(`- Issue deadline changes recorded by the move: ${dl}`);
 const ship = (await q1(`select ref, due_by from shipments where case_id=$1 and status='planned'`, [c1]))[0];
 const trayDue = after.requiredBy.tray;
 say(`- Planned tray shipment ${ship?.ref} due_by stored ${ship?.due_by?.toISOString?.() ?? ship?.due_by} vs recomputed tray required-by ${trayDue}: ${new Date(ship?.due_by).toISOString() === trayDue ? 'consistent' : 'STALE (pick queue orders by old cutoff)'}`);
 const pq = (await wh.get('/api/pick-queue')).body.find((s: any) => s.case_ref === 'SYN-1001');
 say(`- Pick queue dispatch-by for that shipment: ${pq?.dispatch_by}`);
-const notes = await q1(`select n.kind, u.display_name from notifications n join users u on u.id=n.user_id where n.case_id=$1 and n.kind in ('case_moved')`, [c1]);
+const notes = await q1(`select n.kind, u.display_name from notifications n join users u on u.id=n.user_id where n.case_id=$1 and (n.kind in ('case_moved') or n.message like '%deadline%' or n.message like '%earlier%')`, [c1]);
 say(`- People notified of move: ${notes.map((n: any) => n.display_name).join(', ') || 'none'} (warehouse/receiving told: ${notes.some((n: any) => /Sam|Alex/.test(n.display_name)) ? 'yes' : 'no'})`);
-const blockerText = after.blockers.map((b: any) => b.message).join(' | ');
-say(`- Board explains facility receiving hours/time-zone deadline: ${/receiving (closes|hours)/i.test(blockerText) ? 'yes' : 'no'}`);
+const blockerText = after.blockers.map((b: any) => `${b.message} ${b.explanation ?? ''}`).join(' | ');
+say(`- Board explains facility receiving hours/time-zone deadline: ${/receiving (closes|hours|by)/i.test(blockerText) ? 'yes' : 'no'}`);
 say(`- API calls used: ${stepCount - s0}\n`);
 
 // ---------------- 2. Two reps race for one unit ----------------
@@ -113,7 +118,9 @@ await sbrRecv.post(`/api/trays/${tray}/verify`, { caseId: c1, sealIntact: true, 
 const repView = (await riley.get(`/api/cases/${c1}`)).body;
 say(`- Rep sees: status ${repView.readiness.status}; top blocker: "${repView.readiness.blockers[0]?.message}" owner ${repView.readiness.blockers[0]?.owner}`);
 const disc = (await q1(`select * from discrepancies where kind='missing_instrument' and status='open'`))[0];
-say(`- Discrepancy has an assignee field: ${'assigned_to' in disc || 'owner_user_id' in disc ? 'yes' : 'NO'}; can be acknowledged: ${(await ops.post(`/api/issues/x/ack`)).code === 404 && !('issues' in repView) ? 'NO endpoint' : 'yes'}`);
+const trayIssue = repView.readiness.blockers.find((b: any) => b.code === 'tray_incomplete');
+say(`- Discrepancy has a named owner: ${trayIssue?.issueId ? `yes (${trayIssue.owner})` : 'NO'}; can be acknowledged: ${trayIssue?.issueId ? `ack → ${(await ops.post(`/api/issues/${trayIssue.issueId}/ack`, { note: 'sending replacement' })).code}` : 'NO endpoint'}`);
+if (trayIssue?.issueId) { const st = (await q1(`select status from case_issues where id=$1`, [trayIssue.issueId]))[0].status; say(`- After acknowledgment the issue is "${st}" (not resolved) and the case is still ${(await riley.get(`/api/cases/${c1}`)).body.readiness.status}`); }
 const repl = await ops.post(`/api/discrepancies/${disc.id}/replacement`);
 d = (await wh.get(`/api/shipments/${repl.body.id}`)).body;
 await wh.post(`/api/shipments/${repl.body.id}/pick`, { lineId: d.lines[0].id, qty: 1 });
@@ -168,7 +175,7 @@ const qHome = (await qa1.get('/api/quality')).body;
 say(`- Quality late-usage review tasks: ${qTask}; visible on Quality home tasks: ${qHome.tasks?.some((t: any) => t.task_type === 'late_usage_review') ? 'yes' : 'NO'}`);
 // Lost-usage probe: an event the server cannot accept (case reassigned / wrong rep)
 const lost = await jordan.post('/api/offline/sync', { events: [{ ...evs[0], clientEventId: 'ex-lost-1', rawScan: evs[0].rawScan }] });
-const persisted = (await q1(`select count(*)::int n from usage_events where client_event_id='ex-lost-1'`))[0].n;
+const persisted = (await q1(`select count(*)::int n from usage_events where client_event_id='ex-lost-1'`))[0].n + (await q1(`select count(*)::int n from information_schema.tables where table_name='sync_quarantine'`))[0].n && (await q1(`select count(*)::int n from sync_quarantine where client_event_id='ex-lost-1'`).catch(() => [{ n: 0 }]))[0].n;
 say(`- Event the server rejects (rep not assigned): phone told "${lost.body.results?.[0]?.state}: ${lost.body.results?.[0]?.reason}"; persisted on server for review: ${persisted ? 'yes' : 'NO (usage exists only on the phone)'}`);
 // Duplicate serial rescan
 const dup = await riley.post('/api/offline/sync', { events: [{ ...evs[0], clientEventId: 'ex-dup-1' }] });
@@ -182,7 +189,9 @@ const wl = (await fin.get('/api/finance/worklist')).body.find((x: any) => x.case
 say(`- Worklist row: net ${wl?.netCents}, holding: ${JSON.stringify(wl?.holdingUp)}`);
 const finD = (await fin.get(`/api/cases/${c903}/financials`)).body;
 const exc = finD.charges.find((c: any) => c.status === 'exception');
-say(`- Held line shows owner/age/missing evidence fields: ${has(exc, 'owner') || has(exc, 'age_days') ? 'yes' : 'NO'}`);
+const qLines = await fin.get('/api/finance/lines');
+const ql = qLines.code === 200 ? qLines.body.lines.find((l: any) => l.chargeId === exc.id) : null;
+say(`- Held line shows owner/age/missing evidence fields: ${ql ? `yes (owner ${ql.ownerName}, age ${ql.ageDays} d, missing: ${ql.missingEvidence})` : 'NO'}`);
 await fin.post(`/api/charges/${exc.id}/resolve`, { decision: 'charge', unitPriceCents: 205000, reason: 'Price per PVS amendment (exercise)' });
 const hist = await q1(`select count(*)::int n from information_schema.tables where table_name='charge_events'`);
 say(`- Price change history table exists: ${hist[0].n ? 'yes' : 'NO (only appended rationale text)'}`);
@@ -197,6 +206,7 @@ await fin.post(`/api/charges/${ch1.id}/credit`, { amountCents: 10000, reason: 'P
 const mvAfter = (await q1(`select count(*)::int n from inventory_movements`))[0].n;
 const f2 = (await fin.get(`/api/cases/${c903}/financials`)).body;
 say(`- After credit: net ${f2.netCents}; remaining after PO shown: ${has(f2, 'outstandingCents') ? f2.outstandingCents : 'NOT SHOWN'}; inventory movements changed by credit: ${mvAfter - mvBefore}`);
+if (f2.stages) say(`- Lifecycle shown: ${Object.entries(f2.stages).map(([k, v]: any) => `${k}=${v.done ? 'yes' : 'no'}`).join(', ')}`);
 const consumedLoc = (await q1(`select l.kind from stock_balances b join locations l on l.id=b.location_id join usage_events ue on ue.stock_item_id=b.stock_item_id where ue.id=$1 and b.qty>0`, [ch1.usage_event_id]))[0];
 say(`- Corrected implant location after credit: ${consumedLoc?.kind}`);
 say(`- API calls used: ${stepCount - s0}\n`);

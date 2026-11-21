@@ -14,7 +14,7 @@ async function as(browser: Browser, email: string, opts: any = {}): Promise<{ pa
   await expect(page.locator('header.top')).toBeVisible();
   return { page, close: () => ctx.close() };
 }
-const caseLink = (p: Page, ref: string) => p.locator(`tr[data-case="${ref}"] a`).first();
+const caseLink = (p: Page, ref: string) => p.locator(`section[data-case="${ref}"] a`).first();
 
 let xfrUrl = '';
 let trayShipUrl = '';
@@ -22,11 +22,11 @@ let caseUrl = '';
 
 test('1. Ops sees tomorrow morning case at risk with plain-English blockers', async ({ browser }) => {
   const { page, close } = await as(browser, 'ops@lakeshore.example');
-  const row = page.locator('tr[data-case="SYN-1001"]');
+  const row = page.locator('section[data-case="SYN-1001"]');
   await expect(row).toContainText('At risk');
   await expect(row).toContainText('No unit of NP-INS-4-10');
   await expect(row).toContainText('no shipment planned');
-  await expect(page.locator('tr[data-case="SYN-1002"]')).toContainText('schedule feed (SIMULATED) last synced');
+  await expect(page.locator('section[data-case="SYN-1002"]')).toContainText('schedule feed (SIMULATED) last synced');
   await caseLink(page, 'SYN-1001').click();
   caseUrl = page.url();
   await close();
@@ -86,7 +86,7 @@ test('4. Courier marks both delivered; the case is still not ready', async ({ br
   }
   await c.close();
   const o = await as(browser, 'ops@lakeshore.example');
-  const row = o.page.locator('tr[data-case="SYN-1001"]');
+  const row = o.page.locator('section[data-case="SYN-1001"]');
   await expect(row).toContainText('A courier scan does not make the case ready');
   await expect(row).not.toContainText('Ready');
   await o.close();
@@ -105,7 +105,7 @@ test('5. Hospital receiving checks in both deliveries and finds the femoral size
   await expect(r.page.locator('.alert')).toContainText('Femoral sizer');
   await r.page.goto(caseUrl);
   await expect(r.page.locator('h1')).toContainText('Blocked');
-  await expect(r.page.getByText('failed contents verification')).toBeVisible();
+  await expect(r.page.getByText('is missing 1 required instrument').first()).toBeVisible();
   await r.close();
 });
 
@@ -162,13 +162,16 @@ test('8. Rep on an iPhone records usage offline, then syncs on reconnect', async
   await page.context().setOffline(true);
   await page.reload(); // app shell from the service worker, case package from IndexedDB
   await expect(page.getByText('Offline snapshot downloaded')).toBeVisible();
+  // Fast scan: choose the disposition once, then scan successive labels; each is saved immediately with feedback.
+  await page.getByRole('button', { name: 'Implanted' }).click();
   for (const label of ['NP-INS-4-10 SN INS-0002', 'NP-FEM-4L SN FEM4L-0101', 'NP-TIB-4 SN TIB4-0201']) {
-    await page.getByRole('button', { name: 'Implanted' }).click();
     await page.getByLabel('Scan simulator').selectOption({ label });
-    await expect(page.getByTestId('parsed')).toContainText('parsed');
-    await page.getByRole('button', { name: 'Record implanted' }).click();
-    await expect(page.getByText('Offline: saved on this device')).toBeVisible();
+    await expect(page.getByTestId('scan-feedback')).toContainText(`Saved on phone (offline): implanted ${label}`);
   }
+  // An accidental rescan of a serialized unit is caught on the phone and not saved twice.
+  await page.getByLabel('Scan simulator').selectOption({ label: 'NP-FEM-4L SN FEM4L-0101' });
+  await expect(page.getByTestId('scan-feedback')).toContainText('Already recorded');
+  await expect(page.locator('[data-state="pending"]')).toHaveCount(3);
   // Package-level label requires an explicit unit count; an unsupported HIBCC label is flagged.
   await page.getByLabel('Scan simulator').selectOption({ label: 'HIBCC-format label (unsupported)' });
   await expect(page.getByTestId('parsed')).toContainText('needs reviewed manual entry');
@@ -191,9 +194,9 @@ test('9. Finance receives one correctly priced bill-and-replace packet and sends
   const f = await as(browser, 'finance@lakeshore.example');
   await expect(f.page.locator('table[aria-label="Finance worklist"]')).toContainText('SYN-1001');
   await f.page.getByRole('link', { name: 'SYN-1001' }).click();
-  await expect(f.page.getByText('St. Brigid Implant Consignment Agreement (synthetic) v3').first()).toBeVisible();
+  await expect(f.page.locator('td', { hasText: 'St. Brigid Implant Consignment Agreement (synthetic) v3' }).first()).toBeVisible();
   await f.page.getByRole('button', { name: 'Generate billing packet' }).click();
-  await expect(f.page.getByText('net $6,780.00')).toBeVisible();
+  await expect(f.page.getByRole('button', { name: /Billed \(priced lines\): \$6,780\.00/ })).toBeVisible();
   await expect(f.page.locator('h2', { hasText: 'Packet' })).toContainText('bill and replace');
   const financeUrl = f.page.url();
   await f.page.getByRole('button', { name: /Send to ERP/ }).click();
