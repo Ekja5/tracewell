@@ -1,0 +1,6 @@
+Stock Location,Mfr,Cat No,Item Description,Lot,Exp Date,Qty On Hand,UOM,Units per Box
+Main Warehouse,Corvid Orthopaedics (synthetic),00417,"Tibial insert, size 4, 10 mm",T10A,01/15/2028,5,EA,
+Main Warehouse,Corvid Orthopaedics (synthetic),00233,"Femoral component, size 4, left",F4L1,01/15/2028,3,EA,
+Main Warehouse,Corvid Orthopaedics (synthetic),08810,"Bone screw, 6.5 mm",S65B,01/15/2028,2,BX,5
+Main Warehouse,Corvid Orthopaedics (synthetic),00550,"Patella button, 32 mm",,01/15/2028,1,EA,
+Main Warehouse,Corvid Orthopaedics (synthetic),00233,"Femoral component, size 4, left",F4L1,01/15/2028,3,EA,

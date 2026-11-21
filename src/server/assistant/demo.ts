@@ -17,11 +17,14 @@ export function planDemo(message: string, conv: ConvContext, known: { caseRefs: 
   if (/draft (the |a )?transfer|prepare (the |a )?transfer/.test(m)) return [{ tool: 'draft_action', input: { kind: 'transfer', ...(name ? { to: name } : {}) } }];
   if (/(draft|write|give me).*(text|message)/.test(m)) return [{ tool: 'draft_action', input: { kind: 'message', to: name ?? (/receiv/.test(m) ? 'receiver' : 'rep'), about: 'transfer' } }];
   if (/\bassign/.test(m)) return [{ tool: 'draft_action', input: { kind: 'assign_followup', ...(name ? { assignee_name: name } : {}) } }];
+  // Pilot questions about spreadsheet uploads and hospital receipt.
+  if (/what changed|what's different|what is different|difference/.test(m) && /upload|file|spreadsheet|workbook|import|sheet/.test(m)) return [{ tool: 'upload_changes', input: {} }];
+  if (/confirm(ed)? receipt|acknowledg|check(ed)?[- ]in|(hospital|someone at).*(confirm|receiv|sign)|waiting (on|for) the hospital/.test(m)) return [{ tool: 'awaiting_receipt', input: {} }];
   if (/\bcalls?\b/.test(m) || /before \d/.test(m)) {
     const t = m.match(/before\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/);
     let hh = t ? Number(t[1]) : null;
     if (hh != null && (t![3]?.startsWith('p') || (!t![3] && hh < 8))) hh = hh % 12 + 12;
-    return [{ tool: 'call_list', input: { day: /tomorrow/.test(m) ? 'tomorrow' : 'today', act_before_local_time: hh != null ? `${String(hh).padStart(2, '0')}:${t![2] ?? '00'}` : null } }];
+    return [{ tool: 'call_list', input: { day: /tomorrow/.test(m) ? 'tomorrow' : /today'?s cases/.test(m) ? 'today' : 'upcoming', act_before_local_time: hh != null ? `${String(hh).padStart(2, '0')}:${t![2] ?? '00'}` : null } }];
   }
   if (/if i move|move .*tray|which other cases/.test(m)) {
     const unit = message.match(/tray\s*#?\s*\d+/i)?.[0] ?? message.match(/\b[A-Z0-9]{2,}-[A-Z0-9]+(?:-[A-Z0-9]+)*\b/)?.[0] ?? '';
@@ -55,10 +58,10 @@ export function demoText(cards: Card[]): string {
         parts.push(`${n(d.upcoming.length, 'call')} to make${d.cutoffLocal ? ` before ${d.cutoffLocal}` : ''}, earliest deadline first (${n(d.casesChecked, 'case')} checked).`
           + (d.passed.length ? ` ${n(d.passed.length, 'deadline')} already passed; listed separately.` : '')
           + (un ? ` ${un} ${un === 1 ? 'has' : 'have'} no owner (Unassigned); I can draft an assignment.` : '')
-          + (d.upcoming[0] ? ` First: ${d.upcoming[0].caseRef} at ${d.upcoming[0].facility}, act by ${d.upcoming[0].deadlineLocal} (${d.upcoming[0].owner}).` : ''));
+          + (d.upcoming[0] ? ` First: ${d.upcoming[0].caseRef} at ${d.upcoming[0].facility}, act by ${d.upcoming[0].deadlineLocal} (${d.upcoming[0].owner}): ${String(d.upcoming[0].typeLabel ?? '').toLowerCase()}.` : ''));
         break;
       }
-      case 'shortage': parts.push(`${d.caseRef} needs ${d.required} × ${d.ref} (${d.manufacturer}): ${d.sentence}${d.reservedThisCase < d.required ? ` ${d.reservedThisCase === 0 ? 'None is' : d.reservedThisCase === 1 ? 'Only 1 is' : `Only ${d.reservedThisCase} are`} reserved for this case yet, so the board shows it short.` : ''}`); break;
+      case 'shortage': parts.push(`${d.caseRef} needs ${d.required} × ${d.ref} (${d.manufacturer}): ${d.sentence}${d.reservedThisCase < d.required ? ` ${d.reservedThisCase === 0 ? 'None is' : d.reservedThisCase === 1 ? 'Only 1 is' : `Only ${d.reservedThisCase} are`} reserved for this case yet, so the board shows it short.` : ''}${d.pendingDiscrepancies?.length ? ` Not confirmed yet: ${d.pendingDiscrepancies.join(', ')} is waiting to be reconciled.` : ''}${(d.evidence ?? []).find((e: any) => e.kind === 'spreadsheet_row') ? ` Source: ${(d.evidence as any[]).filter((e) => e.kind === 'spreadsheet_row').map((e) => `${e.label} (exported ${e.atLocal})`).join('; ')}.` : ''}`); break;
       case 'availability':
         if (d.mode === 'case') {
           parts.push(d.best ? `Best exact source: ${d.best.label} at ${d.best.location} (custodian ${d.best.custodian}). Estimated arrival ${d.eligible[0]?.arrivalLocal}, before the cutoff ${d.requiredByLocal}. ${d.best.evidence.text}.` : `No eligible unit of this exact item can arrive before ${d.requiredByLocal}. Escalate; no substitutes are suggested.`);
@@ -75,9 +78,19 @@ export function demoText(cards: Card[]): string {
       case 'readiness': parts.push(`${d.caseRef} is ${d.status.replace('_', ' ')}${d.blockers.length ? `: ${d.blockers[0].explanation}` : '.'}`); break;
       case 'draft': parts.push(`${c.title}. Review it below; nothing happens until you confirm.`); break;
       case 'notice': parts.push(d.text); break;
+      case 'changes':
+        if (d.gap) { parts.push(d.gap); break; }
+        parts.push(`Comparing ${d.latest.filename} (exported ${d.latest.exportedAtLocal}) with ${d.previous.filename}: ${d.changes.length ? n(d.changes.length, 'line') + ' changed' : 'no line changed'}, ${d.unchangedCount} unchanged.`);
+        for (const x of d.changes.slice(0, 4)) parts.push(`${x.ref} ${x.unit} at ${x.location}: ${x.before ?? 'not listed before'} → ${x.after}. ${x.statusText}`);
+        for (const e of d.effects.slice(0, 3)) parts.push(`${e.caseRef} now: ${e.sentence}`);
+        if (d.notListed.length) parts.push(`${n(d.notListed.length, 'item')} the system holds ${d.notListed.length === 1 ? 'is' : 'are'} not listed in the latest file; nothing was zeroed.`);
+        break;
+      case 'awaiting':
+        parts.push(d.entries.map((e: any) => `${e.caseRef} at ${e.facility} (surgery ${e.startLocal}): the courier recorded delivery, but ${e.facility} has not confirmed receipt. ${e.whoCanResolve.length ? `${e.whoCanResolve.join(' or ')} can confirm it` : 'No receiving user is set up there'}${e.actByLocal ? `; needed by ${e.actByLocal}` : ''}.`).join(' '));
+        break;
     }
   }
   return parts.join(' ');
 }
 
-export const DEMO_HELP = 'Demo mode understands questions like: "Which of tomorrow\'s cases do I need to make calls on before 3 today?", "Why does this case still show short?", "Where can I get one more of this exact item before receiving closes?", "If I move Tray 14 to the urgent case, which other cases would I put at risk?", "What changed since I checked this case yesterday afternoon?", and "Draft the transfer and give me a text I can send Jordan."';
+export const DEMO_HELP = 'Demo mode understands questions like: "What changed since the previous upload?", "Which case still needs someone at the hospital to confirm receipt?", "Which of tomorrow\'s cases do I need to make calls on before 3 today?", "Why does this case still show short?", "Where can I get one more of this exact item before receiving closes?", "If I move Tray 14 to the urgent case, which other cases would I put at risk?", "What changed since I checked this case yesterday afternoon?", and "Draft the transfer and give me a text I can send Jordan."';

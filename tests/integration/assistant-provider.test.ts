@@ -55,7 +55,7 @@ describe('Provider adapter (mock Messages API; no real model)', () => {
     expect(r1.headers.authorization).toBe('Bearer sk-test-server-side-only'); // credential attached by the server only
     expect(r1.body.model).toBe('claude-opus-5-5');
     expect(r1.body.system[0].cache_control).toEqual({ type: 'ephemeral' });
-    expect(r1.body.tools.map((t: any) => t.name).sort()).toEqual(['call_list', 'case_history', 'case_readiness', 'draft_action', 'find_exact_item', 'shortage_explanation', 'transfer_impact']);
+    expect(r1.body.tools.map((t: any) => t.name).sort()).toEqual(['awaiting_receipt', 'call_list', 'case_history', 'case_readiness', 'draft_action', 'find_exact_item', 'shortage_explanation', 'transfer_impact', 'upload_changes']);
     // The browser response never carries the key or provider internals.
     expect(JSON.stringify(b)).not.toContain('sk-test');
     // Facts in the answer come from the app's card, not from the model text.

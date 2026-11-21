@@ -12,17 +12,18 @@ type Card = { type: string; title: string; checkedAt: string; data: any; sources
 type Turn = { role: 'user' | 'assistant'; text: string; cards?: Card[]; clarification?: any; mode?: string; status?: string; checkedAt?: string; error?: boolean };
 
 const SUGGEST_BOARD = ["Which of tomorrow's cases do I need to make calls on before 3 today?", 'If I move Tray 14 to the urgent case, which other cases would I put at risk?'];
+const SUGGEST_PILOT = ['Which cases do I need to make calls on before 3 today?', 'The spreadsheet says five are on hand. Why are we short?', 'What changed since the previous upload?', 'Which case still needs someone at the hospital to confirm receipt?'];
 const SUGGEST_CASE = ['Why does this case still show short?', 'Where can I get one more of this exact item before receiving closes?', 'What changed since I checked this case yesterday afternoon?'];
 
-export function AskOpsButton({ caseId, facilityId, label = 'Ask operations' }: { caseId?: string; facilityId?: string; label?: string }) {
+export function AskOpsButton({ caseId, facilityId, label = 'Ask operations', pilot }: { caseId?: string; facilityId?: string; label?: string; pilot?: boolean }) {
   const [open, setOpen] = useState(false);
   return (<>
     <button className="ask-btn" onClick={() => setOpen(true)} aria-haspopup="dialog">{label}</button>
-    {open && <AskOpsPanel caseId={caseId} facilityId={facilityId} onClose={() => setOpen(false)} />}
+    {open && <AskOpsPanel caseId={caseId} facilityId={facilityId} pilot={pilot} onClose={() => setOpen(false)} />}
   </>);
 }
 
-export function AskOpsPanel({ caseId, facilityId, onClose }: { caseId?: string; facilityId?: string; onClose: () => void }) {
+export function AskOpsPanel({ caseId, facilityId, onClose, pilot }: { caseId?: string; facilityId?: string; onClose: () => void; pilot?: boolean }) {
   const [status, setStatus] = useState<any>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [conv, setConv] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export function AskOpsPanel({ caseId, facilityId, onClose }: { caseId?: string; 
   };
   const addCards = (cards: Card[]) => setTurns((t) => [...t, { role: 'assistant', text: '', cards }]);
 
-  const suggestions = caseId ? SUGGEST_CASE : SUGGEST_BOARD;
+  const suggestions = pilot ? SUGGEST_PILOT : caseId ? SUGGEST_CASE : SUGGEST_BOARD;
   return (
     <div className="ask-overlay" role="dialog" aria-modal="true" aria-label="Ask operations">
       <div className="ask-panel">
@@ -137,6 +138,12 @@ function CardView({ c, conv, onCards }: { c: Card; conv: string | null; onCards:
         <p className="small">{d.facility} · {d.start}</p>
         {d.blockers?.length ? <ol className="small">{d.blockers.map((b: any, i: number) => <li key={i}>{b.explanation} <span className="muted">Owner: {b.owner ?? 'Unassigned'}{b.actByLocal ? ` · act by ${b.actByLocal}` : ''}</span></li>)}</ol> : <p className="ok small">No open blockers.</p>}
       </>}
+      {c.type === 'changes' && <Changes d={d} />}
+      {c.type === 'awaiting' && <div>{d.entries.map((e: any, i: number) => <div key={i} className="ask-entry" data-await={e.caseRef}>
+        <p><Link to={`/cases/${e.caseId}`}><strong>{e.caseRef}</strong></Link> · {e.facility} · surgery {e.startLocal}{e.tomorrow ? ' (tomorrow)' : ''}</p>
+        <p className="small">Can confirm receipt: <strong>{e.whoCanResolve.length ? e.whoCanResolve.join(', ') : 'no receiving user set up'}</strong>{e.actByLocal ? ` · needed by ${e.actByLocal}${e.passed ? ' (passed)' : ''}` : ''}</p>
+        <ul className="small">{e.evidence.map((x: any, j: number) => <li key={j}>{x.href ? <Link to={x.href}>{x.label}</Link> : x.label}<span className="muted"> · {x.atLocal}</span></li>)}</ul></div>)}</div>}
+      {c.type === 'shortage' && d.evidence?.length > 0 && <details open><summary className="small">Evidence and when each fact was last verified</summary><ul className="small">{d.evidence.map((e: any, i: number) => <li key={i} data-evidence={e.kind}>{e.href ? <Link to={e.href}>{e.label}</Link> : e.label}{e.atLocal && <span className="muted"> · {e.atLocal}</span>}</li>)}</ul></details>}
       {c.type === 'notice' && <p className={d.unavailable ? 'txt-err' : ''}>{d.text}</p>}
       {c.type === 'draft' && <DraftView c={c} onCards={onCards} conv={conv} />}
       {c.type !== 'draft' && <Actions c={c} conv={conv} onCards={onCards} />}
@@ -149,7 +156,7 @@ function CallList({ d }: { d: any }) {
   const row = (e: any, i: number) => (
     <tr key={i} className={e.owner === 'Unassigned' ? 'unassigned' : ''}>
       <td className="col-case"><Link to={e.recordLink}>{e.caseRef}</Link><div className="tiny muted">{e.facility}</div></td>
-      <td className="small">{e.issue}</td>
+      <td className="small">{e.typeLabel && <span className={`badge ${e.type === 'confirmed_shortage' ? 'st-blocked' : e.type === 'missing_information' ? 'st-closed' : 'st-at_risk'}`}>{e.typeLabel}</span>} {e.detail ?? e.issue}{e.whoCanResolve?.length > 0 && <div className="tiny">Can resolve: {e.whoCanResolve.join(', ')}</div>}{e.lastVerified && <div className="tiny muted">Last verified {e.lastVerified.atLocal}: {e.lastVerified.what}</div>}</td>
       <td className="col-owner">{e.owner === 'Unassigned' ? <strong className="sev-warning">Unassigned</strong> : e.owner}<div className="small"><span className="tiny muted">Act by </span>{e.deadlineLocal}</div></td>
     </tr>);
   return (<>
@@ -158,6 +165,21 @@ function CallList({ d }: { d: any }) {
     {d.passed?.length > 0 && <><h5 className="sev-critical">Deadline already passed ({d.passed.length})</h5>
       <div className="table-wrap"><table className="ask-table passed"><tbody>{d.passed.map(row)}</tbody></table></div></>}
     <p className="tiny muted">{d.casesChecked} case(s) checked. Deadlines in each facility's local time.</p>
+  </>);
+}
+
+function Changes({ d }: { d: any }) {
+  if (d.gap) return <p className="ask-gap" role="note">{d.gap}</p>;
+  const delta = (x: any) => (x.delta == null ? 'new' : x.delta > 0 ? `+${x.delta}` : String(x.delta));
+  return (<>
+    <p className="small">Latest: <Link to={`/uploads/runs/${d.latest.runId}`}>{d.latest.filename}</Link>, exported {d.latest.exportedAtLocal}, uploaded {d.latest.uploadedAtLocal} by {d.latest.by}. Previous: <Link to={`/uploads/runs/${d.previous.runId}`}>{d.previous.filename}</Link>, exported {d.previous.exportedAtLocal}.</p>
+    {d.changes.length ? <div className="table-wrap"><table className="ask-table"><thead><tr><th>Item</th><th>Before → after</th><th>Status and evidence</th></tr></thead><tbody>
+      {d.changes.map((x: any, i: number) => <tr key={i} data-change={x.ref} data-status={x.status}><td className="col-case"><strong>{x.ref}</strong> {x.unit}<div className="tiny muted">{x.location}</div></td>
+        <td className="nowrap">{x.before ?? '—'} → <strong>{x.after}</strong> ({delta(x)})</td>
+        <td className="small">{x.statusText}<div className="tiny"><Link to={x.row.href}>{x.row.label}</Link>{x.previousRow && <> · <Link to={x.previousRow.href}>{x.previousRow.label}</Link></>}</div></td></tr>)}
+    </tbody></table></div> : <p className="small">No line changed between the two files.</p>}
+    <p className="tiny muted">{d.unchangedCount} line(s) unchanged.{d.notListed.length ? ` ${d.notListed.length} item(s) the system holds are not listed in the latest file; nothing was zeroed.` : ''}</p>
+    {d.effects.length > 0 && <><h5>Effect on upcoming cases</h5><ul className="small">{d.effects.map((e: any, i: number) => <li key={i}><Link to={`/cases/${e.caseId}`}>{e.caseRef}</Link> ({e.startLocal}): <strong>{e.sentence}</strong></li>)}</ul></>}
   </>);
 }
 

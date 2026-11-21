@@ -63,3 +63,24 @@ and **19 browser tests** (15 earlier + 4 assistant: desktop 1440 px and iPhone 1
 | `npm run eval:assistant:provider` | provider | **not run**: no API key in the build environment |
 
 Evaluation results: `docs/eval/assistant-eval-demo.json`. Details: [assistant.md](assistant.md).
+
+## Fourth pass: distributor pilot (2026-11-21)
+
+`npm run test:all`: typecheck clean; **110 integration tests** (73 earlier + 37 pilot) and **21 browser tests**
+(19 earlier + 2 pilot) pass. Assistant mode in every pilot test: **demo** (no model call).
+
+| Area | Where | Result |
+|---|---|---|
+| Empty tenant → load three worksheets → held rows fixed in the app | `pilot.test.ts` §1, `zzz-pilot.spec.ts` Part 1 | pass |
+| Board and assistant agree before and after reconciliation, buyer quantity 6 and 7 | `pilot.test.ts` §2 (run twice), e2e Part 2 (7) | pass |
+| Buyer quantity 5 (no discrepancy), 4 (short 2), 3 (refused: below reservations) | `pilot.test.ts` §6 | pass |
+| Duplicate upload (same contents, renamed/re-saved) | §2, e2e | pass: nothing imported |
+| Partial export; complete export with missing rows | §3 | pass: nothing zeroed |
+| Stale file after a newer file / reconciliation; file older than a physical count | §3 | pass: skipped, kept as history |
+| Monday 12, Tuesday 10 | §3 | pass: observed −2, cause open until decided |
+| Leading zeros, numeric Excel cell with zero format, shared catalog number, near-duplicate manufacturer | §4 | pass |
+| Hospital user scope (board, assistant, uploads, reconcile, pilot report) | §2, §5, e2e | pass |
+| Predictions, revisions, outcome separation, evidence-gated savings, traceable report | §5, e2e | pass |
+
+Browser run timings (machine-paced, `docs/pilot/e2e-timings.json`): setup from empty 6.2 s; demo portion 7.3 s.
+No human-paced run was timed.

@@ -40,6 +40,11 @@ export const PERMS: Record<string, Role[]> = {
   'integration.view': ['ops_manager', 'finance', 'inventory_coordinator', 'quality_manager'],
   'card.view': ['ops_manager', 'scheduler', 'rep', 'inventory_coordinator'],
   'usage.void': ['ops_manager', 'rep'],
+  // Pilot: spreadsheet uploads, reconciliation of spreadsheet-vs-system differences, pilot evaluation records.
+  'upload.run': ['inventory_coordinator', 'ops_manager'],
+  'upload.view': ['inventory_coordinator', 'ops_manager', 'scheduler', 'warehouse', 'finance', 'quality_manager'],
+  'reconcile.decide': ['inventory_coordinator', 'ops_manager'],
+  'pilot.record': ['inventory_coordinator', 'ops_manager'],
 };
 
 /** Admin inherits every distributor permission but never hospital-only decisions. */

@@ -39,6 +39,7 @@ export function CaseDetail() {
             <li key={b.key ?? i} className={`issue sev-border-${b.severity}`}>
               <div><span className={`sev-${b.severity}`}>{b.severity === 'critical' ? 'Critical' : 'Warning'}:</span> {b.explanation}</div>
               <IssueControls b={b} tz={tz} assignable={data.assignable} onDone={reload} />
+              {b.code === 'uncovered' && can('reservation.manage') && <button className="secondary" onClick={() => act(() => post(`/api/cases/${c.id}/requirements/${b.key.split(':')[1]}/reserve-available`), (r) => `Reserved ${r.reserved} unit(s)${r.stillNeeded ? `; ${r.stillNeeded} still needed` : ''}.`)}>Reserve available units</button>}
               <details><summary className="small">What happened so far</summary><IssueHistory history={data.issues.find((x: any) => x.id === b.issueId)?.history} tz={tz} /></details>
             </li>))}
           </ol>)}

@@ -15,6 +15,7 @@ import { lastVerification, localDate } from '../domain/inventory.js';
 import { zoned, localYmd, addDaysYmd, fmtClock } from '../time.js';
 import type { AssistantCtx, Card, ConvContext, ToolDef, ToolOutput, Source } from './types.js';
 import { createDraft } from './drafts.js';
+import { enrichCases, shortageEvidence } from '../pilot/tomorrow.js';
 
 const card = (c: Omit<Card, 'checkedAt'>): Card => ({ ...c, checkedAt: nowIso() });
 const notice = (title: string, text: string, caveats: string[] = []): ToolOutput => ({ card: card({ type: 'notice', title, data: { text }, sources: [], caveats }), modelData: { notice: text } });
@@ -76,22 +77,27 @@ async function userTz(db: Db, actx: AssistantCtx) {
 
 // ---------- tool implementations ----------
 
-const callListSchema = z.object({ day: z.enum(['today', 'tomorrow']).default('tomorrow'), act_before_local_time: z.string().regex(/^\d{1,2}:\d{2}$/).nullish() });
+const callListSchema = z.object({ day: z.enum(['today', 'tomorrow', 'upcoming']).default('tomorrow'), act_before_local_time: z.string().regex(/^\d{1,2}:\d{2}$/).nullish() });
 async function callList(db: Db, actx: AssistantCtx, input: any, conv: ConvContext): Promise<ToolOutput> {
   const p = callListSchema.parse(input ?? {});
   const tz = await userTz(db, { ...actx });
   const cutoff = p.act_before_local_time ? localCutoff({ ...actx, tenantTz: tz }, p.act_before_local_time, 'today') : null;
   const t = now();
   const board = await readinessBoard(db, actx, 60);
-  const targetDay = p.day === 'tomorrow' ? addDaysYmd(localYmd(t, tz), 1) : localYmd(t, tz);
-  // "Tomorrow" is each case's own facility-local date.
-  const cases = board.cases.filter((c: any) => localYmd(new Date(c.scheduledStart), c.timezone) === targetDay && c.caseStatus === 'scheduled');
+  // "Today"/"tomorrow" are each case's own facility-local dates.
+  const dayOf = (c: any) => { const d = localYmd(new Date(c.scheduledStart), c.timezone); const today = localYmd(t, c.timezone); return d === today ? 'today' : d === addDaysYmd(today, 1) ? 'tomorrow' : 'later'; };
+  const cases = board.cases.filter((c: any) => c.caseStatus === 'scheduled' && (p.day === 'upcoming' ? dayOf(c) !== 'later' : dayOf(c) === p.day));
+  // Same classification and evidence as the Tomorrow board.
+  const enr = new Map<string, any>();
+  for (const e of await enrichCases(db, actx, cases)) for (const b of e.blockers) enr.set(`${e.id}|${b.key}`, b);
   const entries: any[] = []; const noDeadline: any[] = []; const caveats: string[] = [];
   for (const c of cases) {
     for (const b of c.blockers) {
       const actBy = b.actBy ?? b.requiredBy ?? null;
       const base = { caseId: c.id, caseRef: c.caseRef, facility: c.facility, timezone: c.timezone, issue: b.message, code: b.code, owner: b.ownerUserId ? b.owner : 'Unassigned', ownerUserId: b.ownerUserId, issueId: b.issueId, issueStatus: b.issueStatus, escalated: b.escalated,
-        actBy, deadlineLocal: actBy ? fmtLocal(actBy, c.timezone) : null, recordLink: b.link ?? `/cases/${c.id}` };
+        actBy, deadlineLocal: actBy ? fmtLocal(actBy, c.timezone) : null, recordLink: b.link ?? `/cases/${c.id}`,
+        type: enr.get(`${c.id}|${b.key}`)?.type ?? 'action_needed', typeLabel: enr.get(`${c.id}|${b.key}`)?.typeLabel ?? 'Action needed', detail: enr.get(`${c.id}|${b.key}`)?.detail ?? null,
+        whoCanResolve: enr.get(`${c.id}|${b.key}`)?.whoCanResolve ?? [], lastVerified: enr.get(`${c.id}|${b.key}`)?.lastVerified ?? null, evidence: enr.get(`${c.id}|${b.key}`)?.evidence ?? [] };
       if (!actBy) { noDeadline.push(base); continue; }
       if (cutoff && new Date(actBy) > cutoff) continue;
       entries.push({ ...base, passed: new Date(actBy) < t });
@@ -102,7 +108,7 @@ async function callList(db: Db, actx: AssistantCtx, input: any, conv: ConvContex
   entries.sort((a, b) => String(a.actBy).localeCompare(String(b.actBy)));
   const merged = new Map<string, any>();
   for (const e of entries) {
-    const k = [e.caseId, e.code, e.owner, e.actBy].join('|');
+    const k = [e.caseId, e.code, e.owner, e.actBy, e.type].join('|');
     const m = merged.get(k);
     if (!m) merged.set(k, { ...e, issueIds: [e.issueId], issues: [e.issue] });
     else { m.issueIds.push(e.issueId); m.issues.push(e.issue); m.issue = `${m.issues.length} items: ${m.issues.join(' ')}`; }
@@ -110,13 +116,14 @@ async function callList(db: Db, actx: AssistantCtx, input: any, conv: ConvContex
   entries.splice(0, entries.length, ...merged.values());
   const upcoming = entries.filter((e) => !e.passed), passed = entries.filter((e) => e.passed);
   const sources: Source[] = [...new Map(entries.map((e) => [e.caseId, { label: `Case ${e.caseRef}`, href: `/cases/${e.caseId}`, kind: 'case' }])).values()];
+  for (const e of entries) for (const ev of (e.evidence ?? []).filter((x: any) => x.href && x.kind !== 'reservation').slice(0, 4)) if (!sources.some((s) => s.href === ev.href)) sources.push({ label: ev.label, href: ev.href, kind: ev.kind });
   const unassigned = upcoming.filter((e) => e.owner === 'Unassigned' && e.issueId);
   return {
-    card: card({ type: 'call_list', title: `Calls for ${p.day}'s cases${cutoff ? ` before ${fmtLocal(cutoff, tz)}` : ''}`, data: { upcoming, passed, noDeadline, cutoff: cutoff?.toISOString() ?? null, cutoffLocal: cutoff ? fmtLocal(cutoff, tz) : null, casesChecked: cases.length, timezone: tz },
+    card: card({ type: 'call_list', title: `Calls for ${p.day === 'upcoming' ? "today's and tomorrow's" : `${p.day}'s`} cases${cutoff ? ` before ${fmtLocal(cutoff, tz)}` : ''}`, data: { upcoming, passed, noDeadline, cutoff: cutoff?.toISOString() ?? null, cutoffLocal: cutoff ? fmtLocal(cutoff, tz) : null, casesChecked: cases.length, timezone: tz },
       sources, caveats: [...new Set(caveats)].slice(0, 6),
       actions: unassigned.slice(0, 3).map((e) => ({ kind: 'assign_followup' as const, label: `Draft assignment: ${e.caseRef} (${e.code.replace(/_/g, ' ')})`, params: { issueId: e.issueId, caseId: e.caseId } })) }),
     modelData: { cutoff_local: cutoff ? fmtLocal(cutoff, tz) : null, cases_checked: cases.length,
-      calls: upcoming.map((e) => ({ case: e.caseRef, facility: e.facility, issue: e.issue, owner: e.owner, deadline_local: e.deadlineLocal })),
+      calls: upcoming.map((e) => ({ case: e.caseRef, facility: e.facility, kind: e.typeLabel, issue: e.issue, assessment: e.detail, owner: e.owner, deadline_local: e.deadlineLocal })),
       already_past_deadline: passed.map((e) => ({ case: e.caseRef, issue: e.issue, owner: e.owner, deadline_local: e.deadlineLocal })) },
     contextPatch: { lastCallList: upcoming.map((e) => ({ issueId: e.issueId, caseId: e.caseId, caseRef: e.caseRef, owner: e.owner })) },
   };
@@ -188,6 +195,15 @@ export async function computeShortage(db: Db, actx: AssistantCtx, c: any, req: a
 }
 
 async function shortageTool(db: Db, actx: AssistantCtx, input: any, conv: ConvContext): Promise<ToolOutput> {
+  if (!input?.case_ref && !conv.caseId) {
+    // No case named or open: look at upcoming cases that have an unreserved requirement.
+    const board = await readinessBoard(db, actx, 60);
+    const cands = board.cases.filter((x: any) => x.caseStatus === 'scheduled' && x.blockers.some((b: any) => b.code === 'uncovered'));
+    if (!cands.length) return notice('Nothing short', 'No case in the next 60 hours has an unreserved requirement right now.');
+    if (cands.length > 1) return { modelData: { needs_choice: cands.map((x: any) => x.caseRef) }, clarification: { question: `${cands.length} upcoming cases have an item that is not reserved. Which case?`,
+      options: cands.map((x: any) => ({ label: `${x.caseRef} · ${x.facility} · ${fmtLocal(x.scheduledStart, x.timezone)}`, contextPatch: { caseId: x.id, caseRef: x.caseRef } })) } };
+    conv = { ...conv, caseId: cands[0].id };
+  }
   const { c, out } = await resolveCase(db, actx, input?.case_ref, conv);
   if (out) return out;
   const { item, out: o2 } = await resolveItem(db, input?.catalog_ref, conv, c.id);
@@ -214,15 +230,19 @@ async function shortageTool(db: Db, actx: AssistantCtx, input: any, conv: ConvCo
     ...s.otherCases.map((o: any) => ({ label: `Reservation held by ${o.ref}`, href: `/cases/${o.id}`, kind: 'reservation' })),
   ];
   const caveats: string[] = [];
+  const se = await shortageEvidence(db, actx, c.id, r, s);
+  for (const e of se.evidence.filter((e) => e.href && e.kind !== 'reservation')) sources.push({ label: e.label, href: e.href!, kind: e.kind === 'requirement' ? 'requirement_row' : e.kind });
+  for (const d of se.disc) caveats.push(`${d.ref} is not reconciled yet: ${d.kind === 'not_listed' ? `the latest complete file does not list ${d.ledger_qty} unit(s) the system holds at ${d.loc_name}` : `a newer spreadsheet says ${d.observed_qty} at ${d.loc_name}; the system has ${d.ledger_qty}`}. These numbers use the system quantity until someone decides.`);
+  const evidence = se.evidence.map((e) => ({ ...e, atLocal: e.at ? fmtLocal(e.at, c.timezone) : null }));
   for (const l of s.lines.filter((l: any) => l.bucket === 'available')) {
     const ver = await lastVerification(db, l.stockItemId, l.locationId);
     const ev = evidenceTier(ver?.kind ?? null, ver?.at ?? null, now().getTime());
     if (ev.tier !== 'fresh' && ev.tier !== 'recent') caveats.push(`Available ${l.unit} at ${l.location}: ${ev.text}.`);
   }
   return {
-    card: card({ type: 'shortage', title: `Why ${c.case_ref} shows short on ${r.ref}`, data: { caseId: c.id, caseRef: c.case_ref, requirementId: r.id, ref: r.ref, manufacturer: r.manufacturer, description: r.description, ...s }, sources, caveats,
+    card: card({ type: 'shortage', title: `Why ${c.case_ref} shows short on ${r.ref}`, data: { caseId: c.id, caseRef: c.case_ref, requirementId: r.id, ref: r.ref, manufacturer: r.manufacturer, description: r.description, ...s, evidence, pendingDiscrepancies: se.disc.map((d) => d.ref), classification: se.disc.length ? 'missing_information' : s.short > 0 ? 'confirmed_shortage' : 'action_needed' }, sources, caveats,
       actions: s.short || s.needToReserve ? [{ kind: 'transfer' as const, label: 'Find a unit and draft a transfer', params: { caseId: c.id, requirementId: r.id } }] : [] }),
-    modelData: { case: c.case_ref, item: `${r.ref} (${r.manufacturer})`, arithmetic: s.sentence, on_hand: s.onHand, reserved_other_cases: s.reservedOtherCases, on_hold: s.onHold, available: s.available, required: s.required, reserved_this_case: s.reservedThisCase, short: s.short },
+    modelData: { case: c.case_ref, item: `${r.ref} (${r.manufacturer})`, arithmetic: s.sentence, confirmed: !se.disc.length, spreadsheet_evidence: evidence.filter((e) => e.kind === 'spreadsheet_row').map((e) => `${e.label} (exported ${e.atLocal})`), on_hand: s.onHand, reserved_other_cases: s.reservedOtherCases, on_hold: s.onHold, available: s.available, required: s.required, reserved_this_case: s.reservedThisCase, short: s.short },
     contextPatch: { caseId: c.id, caseRef: c.case_ref, requirementId: r.id, catalogItemId: r.catalog_item_id, catalogRef: r.ref, manufacturer: r.manufacturer },
   };
 }
@@ -367,10 +387,106 @@ async function draftTool(db: Db, actx: AssistantCtx, input: any, conv: ConvConte
   return { card: d.card, extraCards: d.extra ? [d.extra.card] : [], modelData: { draft: kind, status: 'draft (not executed until the user confirms)', summary: d.summary, also_drafted: d.extra?.summary ?? null } };
 }
 
+
+// ---------- pilot: spreadsheet changes and hospital receipt ----------
+
+async function uploadChangesTool(db: Db, actx: AssistantCtx): Promise<ToolOutput> {
+  if (!can(actx, 'upload.view')) return notice('Not available for your role', 'Spreadsheet uploads belong to the distributor team. I can tell you what changed on your own cases instead: ask "what changed on this case since yesterday?"');
+  const tz = actx.tenantTz;
+  const runs = await rows(db, `select r.*, f.filename, f.uploaded_at, u.display_name by_name from upload_runs r join upload_files f on f.id=r.file_id join users u on u.id=r.created_by where r.kind='inventory' order by r.created_at desc limit 2`);
+  if (!runs.length) return notice('No inventory file yet', 'No inventory file has been loaded, so there is nothing to compare.');
+  const meta = (r: any) => ({ runId: r.id, filename: r.filename, worksheet: r.worksheet, exportedAt: r.exported_at, exportedAtLocal: fmtLocal(r.exported_at, tz), uploadedAtLocal: fmtLocal(r.created_at, tz), by: r.by_name, coverage: r.coverage });
+  const latest = runs[0], previous = runs[1] ?? null;
+  const fileSrc = (r: any): Source => ({ label: `${r.filename} › ${r.worksheet}`, href: `/uploads/runs/${r.id}`, kind: 'upload' });
+  if (!previous) {
+    const gap = `Only one inventory file has been loaded (${latest.filename}, exported ${fmtLocal(latest.exported_at, tz)}). There is no previous upload to compare it with.`;
+    return { card: card({ type: 'changes', title: 'Changes since the previous upload', data: { latest: meta(latest), previous: null, changes: [], unchangedCount: 0, notListed: [], effects: [], gap }, sources: [fileSrc(latest)], caveats: [gap] }), modelData: { gap } };
+  }
+  const obs = await rows(db, `select o.*, ur.row_number, ur.outcome, ur.message, ci.id catalog_item_id, ci.ref, ci.description, s.lot_number, s.serial_number, l.name loc_name,
+      po.observed_qty prev_qty, pur.row_number prev_row, po.run_id prev_run, pf.filename prev_file, pr.worksheet prev_sheet,
+      sd.id disc_id, sd.ref disc_ref, sd.status disc_status, sd.ledger_qty disc_ledger
+    from balance_observations o join upload_rows ur on ur.id=o.row_id join stock_items s on s.id=o.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id join locations l on l.id=o.location_id
+      left join balance_observations po on po.id=o.previous_observation_id left join upload_rows pur on pur.id=po.row_id left join upload_runs pr on pr.id=po.run_id left join upload_files pf on pf.id=pr.file_id
+      left join stock_discrepancies sd on sd.observation_id=o.id
+    where o.run_id=$1 order by ur.row_number`, [latest.id]);
+  const changes: any[] = []; const sources: Source[] = [fileSrc(latest), fileSrc(previous)]; let unchanged = 0; const itemIds = new Set<string>();
+  for (const o of obs) {
+    const before = o.prev_qty; const delta = before == null ? null : o.observed_qty - before;
+    if (o.role !== 'stale' && !o.disc_id && (delta === 0 || before == null && o.observed_qty === o.ledger_qty)) { unchanged++; continue; }
+    const dec = o.disc_id ? await maybe(db, `select dd.*, u.display_name by_name from discrepancy_decisions dd join users u on u.id=dd.decided_by where dd.discrepancy_id=$1 and dd.decision in ('accept_observed','keep_system') order by dd.decided_at desc limit 1`, [o.disc_id]) : null;
+    let status = 'explained', statusText = `Matches the system balance; recorded movements explain the change.`;
+    if (o.role === 'stale') { status = 'not_applied'; statusText = 'Not applied: the file was older than newer evidence.'; }
+    else if (o.disc_id && o.disc_status === 'open') { status = 'pending'; statusText = `Waiting for reconciliation (${o.disc_ref}): the file says ${o.observed_qty}, the system has ${o.disc_ledger}. Availability still uses ${o.disc_ledger}.`; }
+    else if (dec?.decision === 'accept_observed') { status = 'accepted'; statusText = `${dec.by_name} accepted ${dec.qty_after} as the current balance (${o.disc_ref}, ${fmtLocal(dec.decided_at, tz)}). Cause recorded: ${dec.cause}. Note: ${dec.note}`; }
+    else if (dec?.decision === 'keep_system') { status = 'kept_system'; statusText = `${dec.by_name} kept the system quantity ${dec.qty_before} (${o.disc_ref}, ${fmtLocal(dec.decided_at, tz)}). Reason recorded: ${dec.cause}. Note: ${dec.note}`; }
+    else if (o.disc_id) { status = 'superseded'; statusText = `${o.disc_ref} was replaced by a newer file.`; }
+    const rowHref = `/uploads/runs/${latest.id}?row=${o.row_number}`; const prevHref = o.prev_run ? `/uploads/runs/${o.prev_run}?row=${o.prev_row}` : null;
+    changes.push({ ref: o.ref, description: o.description, unit: o.serial_number ? `SN ${o.serial_number}` : `lot ${o.lot_number}`, location: o.loc_name, before, after: o.observed_qty, delta, status, statusText, discrepancyRef: o.disc_ref ?? null,
+      row: { label: `${latest.filename} › ${latest.worksheet} › row ${o.row_number}`, href: rowHref }, previousRow: prevHref ? { label: `${o.prev_file} › ${o.prev_sheet} › row ${o.prev_row}`, href: prevHref } : null });
+    sources.push({ label: `${latest.filename} row ${o.row_number} (${o.ref}: ${o.observed_qty})`, href: rowHref, kind: 'spreadsheet_row' });
+    if (prevHref) sources.push({ label: `${o.prev_file} row ${o.prev_row} (${o.ref}: ${before})`, href: prevHref, kind: 'spreadsheet_row' });
+    if (o.disc_ref) sources.push({ label: `Reconciliation ${o.disc_ref}`, href: `/reconcile?ref=${o.disc_ref}`, kind: 'reconciliation' });
+    itemIds.add(o.catalog_item_id);
+  }
+  const notListed = await rows(db, `select sd.ref, sd.status, sd.ledger_qty, ci.ref item_ref, l.name loc_name from stock_discrepancies sd join stock_items s on s.id=sd.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id join locations l on l.id=sd.location_id where sd.run_id=$1 and sd.kind='not_listed'`, [latest.id]);
+  for (const n of notListed) sources.push({ label: `Reconciliation ${n.ref}`, href: `/reconcile?ref=${n.ref}`, kind: 'reconciliation' });
+  // What the changes mean for upcoming cases, using the same arithmetic as the board.
+  const effects: any[] = [];
+  if (itemIds.size) {
+    const t = now();
+    const reqs = await rows(db, `select cr.*, ci.ref, c.id cid, c.case_ref, c.scheduled_start, c.facility_id, f.timezone from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id join cases c on c.id=cr.case_id join facilities f on f.id=c.facility_id
+       where cr.catalog_item_id = any($1) and cr.active and cr.mandatory and c.status='scheduled' and c.scheduled_start between $2 and $3 order by c.scheduled_start`, [[...itemIds], new Date(t.getTime() - 6 * 3600e3).toISOString(), new Date(t.getTime() + 60 * 3600e3).toISOString()]);
+    for (const r of reqs) {
+      const s = await computeShortage(db, actx, { id: r.cid, scheduled_start: r.scheduled_start, timezone: r.timezone, facility_id: r.facility_id }, r);
+      const held = (await one(db, `select coalesce(sum(qty),0)::int n from reservations where requirement_id=$1 and status='active'`, [r.id])).n;
+      if (held >= r.qty) continue; // already covered (possibly in transit): the change does not affect it
+      effects.push({ caseId: r.cid, caseRef: r.case_ref, ref: r.ref, startLocal: fmtLocal(r.scheduled_start, r.timezone), sentence: s.sentence, short: s.short, available: s.available });
+      sources.push({ label: `Case ${r.case_ref}`, href: `/cases/${r.cid}`, kind: 'case' });
+    }
+  }
+  const others = await rows(db, `select r.kind, r.worksheet, r.counts, r.id, f.filename from upload_runs r join upload_files f on f.id=r.file_id where r.kind<>'inventory' and r.created_at > $1 order by r.created_at`, [previous.created_at]);
+  const uniq = [...new Map(sources.map((s) => [s.href, s])).values()];
+  const caveats = changes.filter((c) => c.status === 'pending').map((c) => `${c.ref}: ${c.statusText}`);
+  if (latest.coverage === 'partial') caveats.push('The latest file was loaded as a partial export: items it does not list were left unchanged.');
+  return {
+    card: card({ type: 'changes', title: `What changed: ${latest.filename} vs ${previous.filename}`, data: { latest: meta(latest), previous: meta(previous), changes, unchangedCount: unchanged, notListed, effects, otherUploads: others.map((o) => ({ kind: o.kind, filename: o.filename, worksheet: o.worksheet, counts: o.counts, href: `/uploads/runs/${o.id}` })), gap: null }, sources: uniq, caveats }),
+    modelData: { latest_file: latest.filename, latest_exported_local: fmtLocal(latest.exported_at, tz), previous_file: previous.filename, unchanged_lines: unchanged,
+      changes: changes.map((c) => ({ item: c.ref, unit: c.unit, location: c.location, before: c.before, after: c.after, status: c.status, detail: c.statusText })), not_listed: notListed.map((n) => `${n.item_ref} at ${n.loc_name}`),
+      effect_on_cases: effects.map((e) => ({ case: e.caseRef, item: e.ref, arithmetic: e.sentence })) },
+  };
+}
+
+async function awaitingReceiptTool(db: Db, actx: AssistantCtx): Promise<ToolOutput> {
+  const t = now();
+  const board = await readinessBoard(db, actx, 60);
+  const cases = board.cases.filter((c: any) => c.caseStatus === 'scheduled' && c.blockers.some((b: any) => b.code === 'delivered_unreceived'));
+  if (!cases.length) return notice('Nothing waiting', 'No delivered shipment is waiting for a hospital check-in on cases in the next 60 hours.');
+  const enriched = await enrichCases(db, actx, cases);
+  const entries: any[] = []; const sources: Source[] = [];
+  for (const c of enriched) {
+    const bs = c.blockers.filter((b: any) => b.code === 'delivered_unreceived');
+    const ev = bs.flatMap((b: any) => b.evidence).filter((e: any, i: number, a: any[]) => a.findIndex((x) => x.href === e.href && x.label === e.label) === i);
+    entries.push({ caseId: c.id, caseRef: c.caseRef, facility: c.facility, startLocal: c.startLocal, tomorrow: localYmd(new Date(c.scheduledStart), c.timezone) === addDaysYmd(localYmd(t, c.timezone), 1),
+      items: bs.map((b: any) => b.message), whoCanResolve: bs[0].whoCanResolve, actByLocal: bs[0].actByLocal, passed: bs[0].passed, owner: bs[0].owner, evidence: ev, lastVerified: bs[0].lastVerified });
+    sources.push({ label: `Case ${c.caseRef}`, href: `/cases/${c.id}`, kind: 'case' });
+    for (const e of ev) if (e.href) sources.push({ label: e.label, href: e.href, kind: e.kind });
+  }
+  return {
+    card: card({ type: 'awaiting', title: 'Delivered, waiting for the hospital to confirm receipt', data: { entries }, sources: [...new Map(sources.map((s) => [s.href + s.label, s])).values()], caveats: ['A courier scan shows the shipment was dropped off. It is not a hospital check-in.'] }),
+    modelData: { waiting: entries.map((e) => ({ case: e.caseRef, facility: e.facility, surgery_local: e.startLocal, can_confirm: e.whoCanResolve, act_by_local: e.actByLocal, courier_evidence: e.evidence.map((x: any) => `${x.label} at ${x.atLocal}`) })) },
+  };
+}
+
 export const TOOLS: ToolDef[] = [
+  { name: 'upload_changes', perm: 'board.view', run: uploadChangesTool,
+    description: 'What changed between the latest inventory spreadsheet upload and the previous one: per item before/after, whether each difference is pending, accepted or explained by recorded movements, the source rows, and the effect on upcoming cases.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} } },
+  { name: 'awaiting_receipt', perm: 'board.view', run: awaitingReceiptTool,
+    description: 'Cases where a courier recorded delivery but the hospital has not confirmed receipt, with who at the hospital can confirm.',
+    input_schema: { type: 'object', additionalProperties: false, properties: {} } },
   { name: 'call_list', perm: 'board.view', run: callList,
     description: "List the calls to make: open readiness issues for the user's cases on a given day whose act-by time is before a local time today. Ordered by latest time to act; past deadlines listed separately; includes the responsible person or 'Unassigned'.",
-    input_schema: { type: 'object', additionalProperties: false, properties: { day: { type: 'string', enum: ['today', 'tomorrow'] }, act_before_local_time: { type: 'string', description: "24h local time like '15:00' for 'before 3 today'; omit for no cutoff" } } } },
+    input_schema: { type: 'object', additionalProperties: false, properties: { day: { type: 'string', enum: ['today', 'tomorrow', 'upcoming'], description: "Which cases: 'upcoming' = today's and tomorrow's" }, act_before_local_time: { type: 'string', description: "24h local time like '15:00' for 'before 3 today'; omit for no cutoff" } } } },
   { name: 'case_readiness', perm: 'board.view', run: caseReadinessTool,
     description: 'Readiness of one case: status, every blocker with owner and act-by time. Omit case_ref to use the case already in context.',
     input_schema: { type: 'object', additionalProperties: false, properties: { case_ref: { type: 'string' } } } },

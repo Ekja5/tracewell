@@ -18,6 +18,8 @@ export interface MovementInput {
   importBatchId?: string | null;
   countSessionId?: string | null;
   reversesMovementId?: number | null;
+  uploadRowId?: string | null;
+  stockDiscrepancyId?: string | null;
   occurredAt?: string;
   idempotencyKey?: string | null;
 }
@@ -44,12 +46,12 @@ export async function applyMovement(db: Db, ctx: Pick<Ctx, 'tenantId' | 'userId'
   const rec = nowIso();
   const ins = await db.query(
     `insert into inventory_movements(tenant_id, stock_item_id, qty, owner_party_id, from_location_id, from_condition, to_location_id, to_condition,
-       movement_type, shipment_id, case_id, usage_event_id, import_batch_id, count_session_id, reverses_movement_id, reason, actor_user_id, occurred_at, recorded_at, idempotency_key)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       movement_type, shipment_id, case_id, usage_event_id, import_batch_id, count_session_id, reverses_movement_id, reason, actor_user_id, occurred_at, recorded_at, idempotency_key, upload_row_id, stock_discrepancy_id)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      on conflict (tenant_id, idempotency_key) do nothing returning id`,
     [ctx.tenantId, m.stockItemId, m.qty, m.ownerPartyId, m.from?.locationId ?? null, m.from?.condition ?? null, m.to?.locationId ?? null, m.to?.condition ?? null,
       m.type, m.shipmentId ?? null, m.caseId ?? null, m.usageEventId ?? null, m.importBatchId ?? null, m.countSessionId ?? null, m.reversesMovementId ?? null,
-      m.reason, ctx.userId, m.occurredAt ?? rec, rec, m.idempotencyKey ?? null]);
+      m.reason, ctx.userId, m.occurredAt ?? rec, rec, m.idempotencyKey ?? null, m.uploadRowId ?? null, m.stockDiscrepancyId ?? null]);
   if (!ins.rows[0]) {
     const ex = await maybe(db, `select id from inventory_movements where tenant_id=$1 and idempotency_key=$2`, [ctx.tenantId, m.idempotencyKey]);
     return { id: ex.id, replayed: true };

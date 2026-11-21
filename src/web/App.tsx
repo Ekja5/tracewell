@@ -1,11 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { api, ApiError, post, ROLE_LABEL, fmtTime } from './lib/api';
+import { setDefaultTz, api, ApiError, post, ROLE_LABEL, fmtTime } from './lib/api';
 import { clearForUser, isForcedOffline, isOnline, listQueue, setForcedOffline, syncQueue, requestPersistence, listNotes as listLocalNotes, syncNotes } from './lib/offline';
 import { Login } from './pages/Login';
 import { Board } from './pages/Board';
 import { CaseDetail } from './pages/CaseDetail';
 import { QuickNote } from './pages/QuickNote';
+import { UploadsPage, UploadRun } from './pages/Uploads';
+import { Tomorrow, Reconcile, PilotReview, PilotReport } from './pages/Pilot';
 import { Rescue } from './pages/Rescue';
 import { Shipments, ShipmentDetail, PickQueue } from './pages/Shipments';
 import { TrayVerify } from './pages/TrayVerify';
@@ -90,6 +92,10 @@ function SyncBar({ me }: { me: Me }) {
 
 const NAV: { to: string; label: string; perm?: string; roles?: string[] }[] = [
   { to: '/', label: 'Readiness', perm: 'board.view' },
+  { to: '/tomorrow', label: "Tomorrow's cases", perm: 'board.view' },
+  { to: '/uploads', label: 'Load files', perm: 'upload.view' },
+  { to: '/reconcile', label: 'Reconcile', perm: 'upload.view' },
+  { to: '/pilot', label: 'Pilot review', perm: 'pilot.record' },
   { to: '/today', label: 'My cases', roles: ['rep'] },
   { to: '/find', label: 'Item finder', perm: 'rescue.search' },
   { to: '/handoff', label: 'Shift handoff', perm: 'board.view' },
@@ -169,6 +175,12 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/notifications" element={<Alerts reload={notes.reload} />} />
             <Route path="/handoff" element={<Handoff />} />
             <Route path="/find" element={<FindItem />} />
+            <Route path="/tomorrow" element={<Tomorrow />} />
+            <Route path="/uploads" element={<UploadsPage />} />
+            <Route path="/uploads/runs/:id" element={<UploadRun />} />
+            <Route path="/reconcile" element={<Reconcile />} />
+            <Route path="/pilot" element={<PilotReview />} />
+            <Route path="/pilot/report" element={<PilotReport />} />
             <Route path="/finance/queue" element={<FinanceQueue />} />
             <Route path="*" element={<p>Page not found. <Link to="/">Go to readiness board</Link></p>} />
           </Routes>
@@ -185,6 +197,7 @@ export function App() {
   const load = useCallback(async () => {
     try {
       const m = await api<Me>('/api/auth/me');
+      setDefaultTz((m as any).user?.facilityTimezone ?? (m as any).user?.tenantTimezone);
       setMe(m);
       // Non-secret profile cached so an assigned rep can reopen the app offline. The session cookie stays HttpOnly.
       if (m.user.role === 'rep') localStorage.setItem('tw-me', JSON.stringify(m)); else localStorage.removeItem('tw-me');

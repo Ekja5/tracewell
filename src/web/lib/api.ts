@@ -21,8 +21,12 @@ export function uuid() {
   return (crypto as any).randomUUID ? crypto.randomUUID() : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+let defaultTz: string | undefined;
+/** The signed-in user's home time zone (facility for hospital users, otherwise the distributor's). */
+export function setDefaultTz(tz: string | undefined) { defaultTz = tz; }
 export function fmtTime(iso: string | null | undefined, tz?: string, opts: Intl.DateTimeFormatOptions = {}) {
   if (!iso) return '—';
+  tz = tz ?? defaultTz;
   return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', ...opts }).format(new Date(iso));
 }
 export const money = (c: number | null | undefined) => (c == null ? '—' : `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);

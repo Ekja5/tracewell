@@ -24,6 +24,11 @@ import { ask, assistantStatus } from './assistant/engine.js';
 import * as drafts from './assistant/drafts.js';
 import * as notes from './assistant/notes.js';
 import type { AssistantCtx } from './assistant/types.js';
+import * as uploads from './pilot/uploads.js';
+import * as reconcile from './pilot/reconcile.js';
+import * as pilotEval from './pilot/evaluation.js';
+import { tomorrowView, reserveAvailable } from './pilot/tomorrow.js';
+import { SAMPLES, sampleFile } from './pilot/samples.js';
 import { AVAILABILITY_SQL, ledgerReconciliation, reverseMovement, reserve } from './domain/inventory.js';
 import { parseScan } from '../shared/gs1.js';
 
@@ -84,9 +89,9 @@ export async function buildApp() {
   app.post('/api/auth/logout', async (req, reply) => { await logout(req.cookies[COOKIE]); reply.clearCookie(COOKIE, { path: '/' }); return { ok: true }; });
   app.get('/api/auth/me', async (req) => {
     const ctx = await auth(req);
-    const [u] = await q(`select u.*, f.name facility_name, f.timezone facility_tz, t.name tenant_name from users u join tenants t on t.id=u.tenant_id left join facilities f on f.id=u.facility_id where u.id=$1`, [ctx.userId]);
+    const [u] = await q(`select u.*, f.name facility_name, f.timezone facility_tz, t.name tenant_name, t.timezone tenant_tz from users u join tenants t on t.id=u.tenant_id left join facilities f on f.id=u.facility_id where u.id=$1`, [ctx.userId]);
     const perms = Object.keys(PERMS).filter((p) => can(ctx, p));
-    return { user: { ...publicUser(u), facilityName: u.facility_name, facilityTimezone: u.facility_tz, tenantName: u.tenant_name }, perms, now: nowIso(), demoClock: config.demoClock, demoShortcuts: config.demoLoginShortcuts };
+    return { user: { ...publicUser(u), facilityName: u.facility_name, facilityTimezone: u.facility_tz, tenantName: u.tenant_name, tenantTimezone: u.tenant_tz }, perms, now: nowIso(), demoClock: config.demoClock, demoShortcuts: config.demoLoginShortcuts };
   });
   // Development-only demo shortcuts. Disabled (404) whenever NODE_ENV=production.
   app.get('/api/auth/demo-accounts', async (req, reply) => {
@@ -188,6 +193,32 @@ export async function buildApp() {
   r('GET', '/api/cases/:id/handoff-notes', 'closeout.record', async (db, ctx, req) => notes.listNotes(db, ctx, P(req).id));
   r('POST', '/api/handoff-notes/:id/revise', 'closeout.record', async (db, ctx, req) => notes.reviseNote(db, ctx, P(req).id, B(req)));
   r('POST', '/api/handoff-notes/:id/approve', 'closeout.record', async (db, ctx, req) => notes.approveNote(db, ctx, P(req).id));
+
+  // ---------------- Pilot: spreadsheet uploads, reconciliation, tomorrow, evaluation ----------------
+  r('GET', '/api/uploads', 'upload.view', async (db) => ({ runs: await uploads.listRuns(db), samples: SAMPLES, kinds: uploads.KIND_LABEL }));
+  r('GET', '/api/uploads/samples/:name', 'upload.view', async (_db, _ctx, req, reply) => {
+    const f = await sampleFile(P(req).name, Q(req).qty != null ? Number(Q(req).qty) : undefined);
+    if (!f) throw new AppError(404, 'not_found', 'No such sample file');
+    return reply.header('content-type', f.type).header('content-disposition', `attachment; filename="${P(req).name}"`).send(f.body);
+  });
+  r('POST', '/api/uploads/file', 'upload.run', async (db, ctx, req) => uploads.storeFile(db, ctx, B(req)));
+  r('POST', '/api/uploads/suggest', 'upload.run', async (db, ctx, req) => uploads.suggest(db, ctx, B(req)));
+  r('POST', '/api/uploads/preview', 'upload.run', async (db, ctx, req) => uploads.runUpload(db, ctx, B(req), 'preview'));
+  r('POST', '/api/uploads/commit', 'upload.run', async (db, ctx, req) => uploads.runUpload(db, ctx, B(req), 'commit'));
+  r('GET', '/api/uploads/runs/:id', 'upload.view', async (db, ctx, req) => uploads.runDetail(db, ctx, P(req).id));
+  r('POST', '/api/uploads/runs/:id/recheck', 'upload.run', async (db, ctx, req) => uploads.recheckRun(db, ctx, P(req).id));
+  r('POST', '/api/uploads/aliases', 'upload.run', async (db, ctx, req) => uploads.saveAlias(db, ctx, B(req)));
+  r('GET', '/api/uploads/conversions', 'upload.view', async (db) => uploads.listConversions(db));
+  r('POST', '/api/uploads/conversions/:id/verify', 'upload.run', async (db, ctx, req) => uploads.verifyConversion(db, ctx, P(req).id, B(req)));
+  r('GET', '/api/reconcile', 'upload.view', async (db, ctx) => reconcile.listDiscrepancies(db, ctx));
+  r('POST', '/api/reconcile/:id/decide', 'reconcile.decide', async (db, ctx, req) => reconcile.decide(db, ctx, P(req).id, B(req)));
+  r('GET', '/api/tomorrow', 'board.view', async (db, ctx) => tomorrowView(db, await actxOf(db, ctx)));
+  r('POST', '/api/cases/:id/requirements/:reqId/reserve-available', 'reservation.manage', async (db, ctx, req) => reserveAvailable(db, await actxOf(db, ctx), P(req).id, P(req).reqId));
+  r('GET', '/api/pilot/review', 'pilot.record', async (db, ctx) => pilotEval.reviewList(db, await actxOf(db, ctx)));
+  r('GET', '/api/pilot/report', 'pilot.record', async (db, ctx) => pilotEval.report(db, await actxOf(db, ctx)));
+  r('POST', '/api/pilot/cases/:id/prediction', 'pilot.record', async (db, ctx, req) => pilotEval.recordPrediction(db, await actxOf(db, ctx), P(req).id, B(req)));
+  r('POST', '/api/pilot/cases/:id/app-prediction', 'pilot.record', async (db, ctx, req) => pilotEval.captureAppPrediction(db, await actxOf(db, ctx), P(req).id));
+  r('POST', '/api/pilot/cases/:id/outcome', 'pilot.record', async (db, ctx, req) => pilotEval.recordOutcome(db, await actxOf(db, ctx), P(req).id, B(req)));
 
   // ---------------- Rescue ----------------
   r('GET', '/api/availability', 'rescue.search', async (db, ctx, req) => exactItemAvailability(db, ctx, { q: Q(req).q ?? '', caseId: Q(req).caseId || null, catalogItemId: Q(req).catalogItemId || null }));

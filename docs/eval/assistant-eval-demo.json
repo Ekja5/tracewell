@@ -1,7 +1,7 @@
 {
   "mode": "demo",
   "modelCalls": "none (deterministic demo planner)",
-  "ranAt": "2026-11-21T22:50:46.489Z",
+  "ranAt": "2026-11-21T23:33:19.952Z",
   "cases": [
     {
       "id": "E0",
@@ -9,14 +9,14 @@
       "mode": "demo",
       "pass": true,
       "facts": {
-        "calls": 5,
+        "calls": 6,
         "passed": 1,
         "unassigned": "SYN-1002",
         "firstActBy": "Sat, Nov 21, 10:30 AM EST"
       },
       "sources": [
-        "/cases/c4f1bab4-960b-4c42-8bcb-7e67b387252d",
-        "/cases/6658d531-2e38-42dd-887e-50e74ee0c089"
+        "/cases/ce993595-145f-4a04-86c7-4ce579cb08f7",
+        "/cases/b5f5b0be-fbab-4a0e-9abd-4c039377c833"
       ],
       "actions": [
         "assign_followup"
@@ -52,8 +52,8 @@
         "closerBy": 70
       },
       "sources": [
-        "/cases/aa8b9bf5-59b2-4922-85b7-ffb7d702e6b6",
-        "/cases/aa8b9bf5-59b2-4922-85b7-ffb7d702e6b6/rescue/c4ff9d93-4cc7-484d-82be-2eff77ae6069",
+        "/cases/8dd6b892-6288-43d7-8090-f23fee893d33",
+        "/cases/8dd6b892-6288-43d7-8090-f23fee893d33/rescue/9ff06ca7-6fbb-4a7a-b8e6-0f3508dedeb3",
         "/inventory?q=NP-PAT-32"
       ],
       "actions": [
@@ -73,8 +73,8 @@
         "transferDraft": 403
       },
       "sources": [
-        "/cases/f776a7fa-da94-4183-82c6-2c2033a7df96",
-        "/cases/aa8b9bf5-59b2-4922-85b7-ffb7d702e6b6"
+        "/cases/a8edafcb-d8e4-44aa-bec1-c4356d84dc16",
+        "/cases/8dd6b892-6288-43d7-8090-f23fee893d33"
       ],
       "actions": []
     },
@@ -89,8 +89,8 @@
         "sinceLabel": "yesterday afternoon (Fri, Nov 20, 12:00 PM CST)"
       },
       "sources": [
-        "/cases/c4f1bab4-960b-4c42-8bcb-7e67b387252d",
-        "/cases/c4f1bab4-960b-4c42-8bcb-7e67b387252d"
+        "/cases/ce993595-145f-4a04-86c7-4ce579cb08f7",
+        "/cases/ce993595-145f-4a04-86c7-4ce579cb08f7"
       ],
       "actions": []
     },
@@ -142,10 +142,10 @@
         "sentence": "5 physically on hand, 4 reserved for other cases, 1 available, 2 required, short 1."
       },
       "sources": [
-        "/cases/a747ba83-c841-4d08-b61c-521c0384db2e",
+        "/cases/e4002205-55e9-4be5-8a7a-c1adb4fa0367",
         "/inventory?q=NP-PAT-32",
-        "/cases/0277ef64-6037-4a08-a5da-a50068b47bde",
-        "/cases/c091d057-4b90-4592-9218-a8287533d093"
+        "/cases/86a5291d-4fd2-4a15-88d4-30452197d6e0",
+        "/cases/49cacaa5-4157-4ab5-ae62-f9aea043482a"
       ],
       "actions": [
         "transfer"

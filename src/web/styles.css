@@ -158,3 +158,16 @@ blockquote { border-left:3px solid var(--line); margin:6px 0; padding:4px 10px; 
 .ask-table td, .ask-table th { overflow-wrap:normal; word-break:normal; }
 .ask-table .col-case { width:150px; } .ask-table .col-owner { width:170px; }
 @media (max-width:760px) { .ask-table .col-case, .ask-table .col-owner { width:auto; } }
+/* Pilot screens */
+.row-hi, tr.row-hi td { background:#fff6d6 !important; outline:2px solid var(--focus); }
+tr.out-held td { background:#fffaf0; }
+.field { display:flex; flex-direction:column; gap:4px; flex:1; min-width:200px; font-size:.9rem; }
+.field input, .field select { font:inherit; padding:8px; border:1px solid var(--line); border-radius:6px; }
+.ev-list { margin:4px 0; padding-left:18px; display:block; }
+.grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; }
+.grid3 input, .grid3 select { width:100%; font:inherit; padding:7px; border:1px solid var(--line); border-radius:6px; margin:3px 0; }
+.grid3 h4 { margin:8px 0 4px; }
+.tm-ready { border-left:6px solid var(--green); } .tm-needs_attention { border-left:6px solid var(--red); } .tm-in_progress { border-left:6px solid #e8a33d; } .tm-needs_information { border-left:6px solid var(--muted); }
+.ask-entry { border-top:1px solid var(--line); padding-top:6px; margin-top:6px; }
+.report { max-width:900px; background:#fff; padding:20px; }
+@media print { header.top, nav#nav, .democlock, .syncbar, .no-print { display:none !important; } main { padding:0; } .report { padding:0; } body { background:#fff; } }

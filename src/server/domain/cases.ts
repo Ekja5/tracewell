@@ -339,6 +339,9 @@ export async function caseReadiness(db: Db, caseId: string, pf?: Prefetch) {
     }
   }
 
+  // A case with no item requirements cannot be judged; that is missing information, not readiness.
+  if (!reqs.length) blockers.push({ key: 'noreq', code: 'no_requirements', severity: 'warning', message: 'No item requirements are loaded for this case, so readiness cannot be judged.', owner: opsName, ownerRole: 'ops_manager', requiredBy: implantDue.toISOString(), action: 'Load the requirements for this case', link: '/uploads' });
+
   // Open discrepancies tied to the case (not tray-specific ones already reported).
   const disc = pf ? (pf.discByCase.get(caseId) ?? []) : await rows(db, `select d.* from discrepancies d where d.case_id=$1 and d.status='open' and d.tray_stock_item_id is null`, [caseId]);
   for (const d of disc) blockers.push({ key: `disc:${d.id}`, code: 'discrepancy', severity: 'warning', message: `Open ${d.kind.replace(/_/g, ' ')} discrepancy: ${d.detail}`, owner: opsName, ownerRole: 'ops_manager', action: 'Resolve discrepancy', link: d.shipment_id ? `/shipments/${d.shipment_id}` : `/cases/${caseId}` });
