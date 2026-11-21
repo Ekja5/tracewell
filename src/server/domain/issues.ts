@@ -48,9 +48,9 @@ export function explain(issue: { message: string; deadlineNote?: string | null }
 }
 
 /** Reconcile persisted issues with the current blockers for one case. Idempotent. */
-export async function syncIssues(db: Db, tenantId: string, caseId: string, readiness: { status: string; blockers: Blocker[] }) {
-  const c = await one(db, `select c.*, f.timezone from cases c join facilities f on f.id=c.facility_id where c.id=$1`, [caseId]);
-  const existing = await rows(db, `select * from case_issues where case_id=$1`, [caseId]);
+export async function syncIssues(db: Db, tenantId: string, caseId: string, readiness: { status: string; blockers: Blocker[] }, pre?: { c: any; existing: any[] }) {
+  const c = pre?.c ?? await one(db, `select c.*, f.timezone from cases c join facilities f on f.id=c.facility_id where c.id=$1`, [caseId]);
+  const existing = pre?.existing ?? await rows(db, `select * from case_issues where case_id=$1`, [caseId]);
   const byKey = new Map(existing.map((i) => [i.issue_key, i]));
   const live = new Set<string>();
   const closedCase = ['cancelled', 'completed', 'closed'].includes(c.status);

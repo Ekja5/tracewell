@@ -98,18 +98,19 @@ describe('Alternate dataset: concurrency, imports, shipments, offline, recall, c
     const recvUser = (await q(`select * from users where tenant_id=$1 and role='hospital_receiving' and facility_id=$2`, [A.T, fac.facility_id]))[0];
     const recv: Ctx = { userId: recvUser.id, tenantId: A.T, role: 'hospital_receiving', facilityId: recvUser.facility_id, territoryId: null, displayName: 'rcv' };
     const plan = await tx(A.T, (db) => ship.planCaseDelivery(db, ops, morning.id));
-    const sid = plan.created[0].id;
+    const planned = plan.created.map((x: any) => x.id);
     // Add a screw line to the same shipment's source and short-pick it.
     const screw = await tx(A.T, (db) => one(db, `select s.id from stock_items s join catalog_items c on c.id=s.catalog_item_id where c.ref='SCREW-35-30'`));
     const extra = await tx(A.T, async (db) => ship.createShipment(db, ops, { fromLocationId: A.L_DC, toLocationId: (await one(db, `select id from locations where facility_id=$1 and kind='hospital_receiving'`, [fac.facility_id])).id, caseId: morning.id, kind: 'case_delivery', lines: [{ stockItemId: screw.id, ownerPartyId: A.dist, qty: 10 }] }));
-    await tx(A.T, async (db) => { for (const s of [sid, extra.id]) { const d = await ship.shipmentDetail(db, wh, s); for (const l of d.lines) await ship.pickLine(db, wh, s, { lineId: l.id, qty: s === extra.id ? 6 : l.qty_expected }); await ship.dispatchShipment(db, wh, s, {}); } });
+    await tx(A.T, async (db) => { for (const s of [...planned, extra.id]) { const d = await ship.shipmentDetail(db, wh, s); for (const l of d.lines) await ship.pickLine(db, wh, s, { lineId: l.id, qty: s === extra.id ? 6 : l.qty_expected }); await ship.dispatchShipment(db, wh, s, {}); } });
     expect(await tx(A.T, async (db) => (await db.query(`select count(*)::int n from exceptions where kind='partial_shipment'`)).rows[0].n)).toBe(1);
-    await tx(A.T, async (db) => { for (const s of [sid, extra.id]) { const d = await ship.shipmentDetail(db, recv, s); await ship.receiveShipment(db, recv, s, { lines: d.lines.map((l: any) => ({ lineId: l.id, qtyReceived: l.qty_dispatched, sealIntact: true })) }); } });
+    await tx(A.T, async (db) => { for (const s of [...planned, extra.id]) { const d = await ship.shipmentDetail(db, recv, s); await ship.receiveShipment(db, recv, s, { lines: d.lines.map((l: any) => ({ lineId: l.id, qtyReceived: l.qty_dispatched, sealIntact: true })) }); } });
     // Offline retries of one implant event.
     const ins = await tx(A.T, (db) => one(db, `select s.*, c.unit_gtin from stock_items s join catalog_items c on c.id=s.catalog_item_id where s.serial_number='IN-001'`));
     const ev = { clientEventId: 'alt-off-1', caseId: morning.id, disposition: 'implanted' as const, entryMethod: 'scanner' as const, offline: true, rawScan: buildGs1({ gtin: ins.unit_gtin, lot: ins.lot_number, serial: ins.serial_number, expiry: ins.expiry_date }) };
     for (let i = 0; i < 4; i++) await tx(A.T, (db) => recordUsage(db, rep, ev));
-    const ue = await tx(A.T, (db) => one(db, `select id from usage_events where client_event_id='alt-off-1'`));
+    const ue = await tx(A.T, (db) => one(db, `select id, status, review_reason from usage_events where client_event_id='alt-off-1'`));
+    expect(ue.review_reason).toBeNull();
     for (const t of ['inventory_movements', 'charges', 'replenishments'])
       expect(await tx(A.T, async (db) => (await db.query(`select count(*)::int n from ${t} where usage_event_id=$1`, [ue.id])).rows[0].n)).toBe(1);
     // Two screws used (lot-controlled, unpriced in contract) -> finance exception.

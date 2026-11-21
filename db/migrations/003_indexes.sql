@@ -1,0 +1,25 @@
+-- Indexes for the readiness board, issue sync, rescue search and recall trace (measured in docs/perf).
+CREATE INDEX IF NOT EXISTS reservations_case ON reservations(case_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS reservations_stock ON reservations(stock_item_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS reservations_requirement ON reservations(requirement_id);
+CREATE INDEX IF NOT EXISTS case_requirements_case ON case_requirements(case_id);
+CREATE INDEX IF NOT EXISTS case_issues_case ON case_issues(case_id);
+CREATE INDEX IF NOT EXISTS shipment_lines_reservation ON shipment_lines(reservation_id);
+CREATE INDEX IF NOT EXISTS shipment_lines_shipment ON shipment_lines(shipment_id);
+CREATE INDEX IF NOT EXISTS shipments_case ON shipments(case_id);
+CREATE INDEX IF NOT EXISTS custody_shipment ON custody_events(shipment_id);
+CREATE INDEX IF NOT EXISTS discrepancies_case ON discrepancies(case_id) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS tray_verifications_tray ON tray_verifications(tray_stock_item_id, verified_at DESC);
+CREATE INDEX IF NOT EXISTS release_decisions_case ON release_decisions(case_id);
+CREATE INDEX IF NOT EXISTS stock_items_item_lot ON stock_items(catalog_item_id, lot_number);
+CREATE INDEX IF NOT EXISTS usage_events_stock ON usage_events(stock_item_id);
+CREATE INDEX IF NOT EXISTS usage_events_case ON usage_events(case_id);
+CREATE INDEX IF NOT EXISTS inv_mov_usage ON inventory_movements(usage_event_id) WHERE usage_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS inv_mov_to_loc ON inventory_movements(stock_item_id, to_location_id);
+CREATE INDEX IF NOT EXISTS count_lines_stock ON count_lines(stock_item_id);
+CREATE INDEX IF NOT EXISTS quality_holds_stock ON quality_holds(stock_item_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS notifications_issue ON notifications(issue_id);
+CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, status);
+CREATE INDEX IF NOT EXISTS cases_start ON cases(tenant_id, scheduled_start);
+CREATE INDEX IF NOT EXISTS charges_case ON charges(case_id);
+CREATE INDEX IF NOT EXISTS stock_balances_location ON stock_balances(location_id) WHERE qty > 0;

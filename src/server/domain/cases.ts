@@ -191,10 +191,41 @@ export interface Blocker { key: string; deadlineNote?: string; code: string; sev
  * verification there is complete with no open discrepancy, and (if the facility requires it) an
  * authorized hospital user recorded a release decision. A courier scan alone never counts.
  */
-export async function caseReadiness(db: Db, caseId: string) {
-  const c = await one(db, `select c.*, f.timezone, f.name facility_name, f.code facility_code, u.display_name rep_name
+/** Board-wide batch of the rows readiness needs, so a 600-case board is a handful of queries, not thousands. */
+export interface Prefetch {
+  cases: Map<string, any>; policies: Map<string, any>; reqsByCase: Map<string, any[]>; resvByReq: Map<string, any[]>;
+  activeShipByResv: Map<string, any>; transitShipByResv: Map<string, any>; discByCase: Map<string, any[]>; feeds: Map<string, any>; issuesByCase: Map<string, any[]>;
+}
+const group = (xs: any[], k: string) => { const m = new Map<string, any[]>(); for (const x of xs) { const v = m.get(x[k]); if (v) v.push(x); else m.set(x[k], [x]); } return m; };
+
+export async function prefetchReadiness(db: Db, caseIds: string[]): Promise<Prefetch> {
+  const cases = await rows(db, `select c.*, f.timezone, f.name facility_name, f.code facility_code, u.display_name rep_name
+    from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id where c.id = any($1)`, [caseIds]);
+  const facIds = [...new Set(cases.map((c) => c.facility_id))];
+  const policies = await rows(db, `select distinct on (facility_id) * from facility_policies where facility_id = any($1) and effective_from <= $2 order by facility_id, version desc`, [facIds, nowIso()]);
+  const reqs = await rows(db, `select cr.*, ci.ref, ci.description, ci.item_type, ci.tracking from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.case_id = any($1) and cr.active order by cr.mandatory desc, ci.item_type desc, ci.ref`, [caseIds]);
+  const resv = await rows(db, `select r.*, s.serial_number, s.lot_number, s.expiry_date, l.kind loc_kind, l.facility_id loc_facility, l.name loc_name, l.code loc_code,
+      te.minutes travel_min, (select h.reason from quality_holds h where h.stock_item_id=r.stock_item_id and h.status='active' limit 1) hold_reason
+    from reservations r join cases c on c.id=r.case_id join stock_items s on s.id=r.stock_item_id join locations l on l.id=r.location_id
+    left join travel_estimates te on te.from_location_id=r.location_id and te.to_facility_id=c.facility_id
+    where r.case_id = any($1) and r.status='active'`, [caseIds]);
+  const resvIds = resv.map((r) => r.id);
+  const active = await rows(db, `select distinct on (sl.reservation_id) sl.reservation_id, s.* from shipment_lines sl join shipments s on s.id=sl.shipment_id where sl.reservation_id = any($1) and s.status in ('planned','picked','packed') order by sl.reservation_id, s.created_at`, [resvIds]);
+  const transit = await rows(db, `select distinct on (sl.reservation_id) sl.reservation_id, s.* from shipment_lines sl join shipments s on s.id=sl.shipment_id where sl.reservation_id = any($1) and s.status in ('dispatched','delivered') order by sl.reservation_id, s.created_at desc`, [resvIds]);
+  const disc = await rows(db, `select d.* from discrepancies d where d.case_id = any($1) and d.status='open' and d.tray_stock_item_id is null`, [caseIds]);
+  const feeds = await rows(db, `select * from integration_feeds where code like 'sched-%'`);
+  const issues = await rows(db, `select * from case_issues where case_id = any($1)`, [caseIds]);
+  return {
+    cases: new Map(cases.map((c) => [c.id, c])), policies: new Map(policies.map((p) => [p.facility_id, p])), reqsByCase: group(reqs, 'case_id'), resvByReq: group(resv, 'requirement_id'),
+    activeShipByResv: new Map(active.map((x) => [x.reservation_id, x])), transitShipByResv: new Map(transit.map((x) => [x.reservation_id, x])), discByCase: group(disc, 'case_id'),
+    feeds: new Map(feeds.map((f) => [f.code, f])), issuesByCase: group(issues, 'case_id'),
+  };
+}
+
+export async function caseReadiness(db: Db, caseId: string, pf?: Prefetch) {
+  const c = pf?.cases.get(caseId) ?? await one(db, `select c.*, f.timezone, f.name facility_name, f.code facility_code, u.display_name rep_name
     from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id where c.id=$1`, [caseId]);
-  const policy = await getPolicy(db, c.facility_id);
+  const policy = pf?.policies.get(c.facility_id) ?? await getPolicy(db, c.facility_id);
   const start = new Date(c.scheduled_start);
   // Policy lead times, then clipped to the facility's receiving hours (facility-local time).
   const trayRaw = new Date(start.getTime() - policy.tray_due_hours_before * 3600e3);
@@ -219,13 +250,13 @@ export async function caseReadiness(db: Db, caseId: string) {
     return { caseId, status: c.status, blockers, items, staleEvidence, hoursNote, requiredBy: { tray: trayDue.toISOString(), implant: implantDue.toISOString() }, lastVerification: null, nextAction: null, policyVersion: policy.version };
   }
 
-  const reqs = await rows(db, `select cr.*, ci.ref, ci.description, ci.item_type, ci.tracking from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.case_id=$1 and cr.active order by cr.mandatory desc, ci.item_type desc, ci.ref`, [caseId]);
+  const reqs = pf ? (pf.reqsByCase.get(caseId) ?? []) : await rows(db, `select cr.*, ci.ref, ci.description, ci.item_type, ci.tracking from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.case_id=$1 and cr.active order by cr.mandatory desc, ci.item_type desc, ci.ref`, [caseId]);
   let lastVer: { at: string; kind: string; what: string } | null = null;
   const bump = (at: any, kind: string, what: string) => { if (at && (!lastVer || new Date(at) > new Date(lastVer.at))) lastVer = { at: new Date(at).toISOString(), kind, what }; };
 
   for (const req of reqs) {
     const due = req.item_type === 'tray' ? trayDue : implantDue;
-    const resv = await rows(db, `select r.*, s.serial_number, s.lot_number, s.expiry_date, l.kind loc_kind, l.facility_id loc_facility, l.name loc_name, l.code loc_code,
+    const resv = pf ? (pf.resvByReq.get(req.id) ?? []) : await rows(db, `select r.*, s.serial_number, s.lot_number, s.expiry_date, l.kind loc_kind, l.facility_id loc_facility, l.name loc_name, l.code loc_code,
         te.minutes travel_min,
         (select h.reason from quality_holds h where h.stock_item_id=r.stock_item_id and h.status='active' limit 1) hold_reason
       from reservations r join stock_items s on s.id=r.stock_item_id join locations l on l.id=r.location_id
@@ -282,7 +313,7 @@ export async function caseReadiness(db: Db, caseId: string) {
         u.state = 'ready'; continue;
       }
       if (r.loc_kind === 'in_transit') {
-        const sh = await maybe(db, `select s.*, (select max(occurred_at) from custody_events e where e.shipment_id=s.id and e.event_type='dispatched') dispatched_at,
+        const sh = pf ? (pf.transitShipByResv.get(r.id) ?? null) : await maybe(db, `select s.*, (select max(occurred_at) from custody_events e where e.shipment_id=s.id and e.event_type='dispatched') dispatched_at,
              (select max(occurred_at) from custody_events e where e.shipment_id=s.id and e.event_type in ('delivered','courier_scan')) courier_at
            from shipment_lines sl join shipments s on s.id=sl.shipment_id where sl.reservation_id=$1 and s.status in ('dispatched','delivered') order by s.created_at desc limit 1`, [r.id]);
         if (sh?.status === 'delivered') {
@@ -295,7 +326,7 @@ export async function caseReadiness(db: Db, caseId: string) {
         continue;
       }
       // Still at a warehouse / trunk / elsewhere.
-      const ship = await maybe(db, `select s.* from shipment_lines sl join shipments s on s.id=sl.shipment_id where sl.reservation_id=$1 and s.status in ('planned','picked','packed') limit 1`, [r.id]);
+      const ship = pf ? (pf.activeShipByResv.get(r.id) ?? null) : await maybe(db, `select s.* from shipment_lines sl join shipments s on s.id=sl.shipment_id where sl.reservation_id=$1 and s.status in ('planned','picked','packed') limit 1`, [r.id]);
       const actBy = r.travel_min != null ? new Date(due.getTime() - r.travel_min * 60e3) : null;
       const late = actBy ? t > actBy : true;
       blockers.push({
@@ -309,11 +340,11 @@ export async function caseReadiness(db: Db, caseId: string) {
   }
 
   // Open discrepancies tied to the case (not tray-specific ones already reported).
-  const disc = await rows(db, `select d.* from discrepancies d where d.case_id=$1 and d.status='open' and d.tray_stock_item_id is null`, [caseId]);
+  const disc = pf ? (pf.discByCase.get(caseId) ?? []) : await rows(db, `select d.* from discrepancies d where d.case_id=$1 and d.status='open' and d.tray_stock_item_id is null`, [caseId]);
   for (const d of disc) blockers.push({ key: `disc:${d.id}`, code: 'discrepancy', severity: 'warning', message: `Open ${d.kind.replace(/_/g, ' ')} discrepancy: ${d.detail}`, owner: opsName, ownerRole: 'ops_manager', action: 'Resolve discrepancy', link: d.shipment_id ? `/shipments/${d.shipment_id}` : `/cases/${caseId}` });
 
   // External schedule feed freshness stays visible.
-  const feed = await maybe(db, `select * from integration_feeds where code=$1`, [`sched-${c.facility_code}`]);
+  const feed = pf ? (pf.feeds.get(`sched-${c.facility_code}`) ?? null) : await maybe(db, `select * from integration_feeds where code=$1`, [`sched-${c.facility_code}`]);
   if (feed) {
     const stale = !feed.last_success_at || t.getTime() - new Date(feed.last_success_at).getTime() > feed.stale_after_minutes * 60e3;
     if (stale) blockers.push({ key: `feed:${feed.id}`, code: 'stale_feed', severity: 'warning', message: `${feed.name} last synced ${feed.last_success_at ? fmtLocal(feed.last_success_at, c.timezone) : 'never'}; the case time has not been reconfirmed with the hospital schedule.`, owner: 'Scheduler', ownerRole: 'scheduler', action: 'Confirm case time with hospital', link: '/integrations' });
@@ -329,13 +360,18 @@ export async function caseReadiness(db: Db, caseId: string) {
 }
 
 /** Readiness plus persisted issue ownership: each blocker gets its issue id, named owner, status and plain-English explanation. */
+const OPEN_ISSUES_SQL = `select i.*, u.display_name owner_name, a.display_name ack_name,
+      (select json_build_object('kind', e.kind, 'at', e.at, 'detail', e.detail) from issue_events e where e.issue_id=i.id order by e.at desc, e.id desc limit 1) last_event
+    from case_issues i left join users u on u.id=i.owner_user_id left join users a on a.id=i.acknowledged_by where i.case_id = any($1) and i.status <> 'resolved'`;
+
 export async function readinessWithIssues(db: Db, tenantId: string, caseId: string) {
   const r = await caseReadiness(db, caseId);
   await syncIssues(db, tenantId, caseId, r);
   const tz = (await one(db, `select f.timezone from cases c join facilities f on f.id=c.facility_id where c.id=$1`, [caseId])).timezone;
-  const issues = await rows(db, `select i.*, u.display_name owner_name, a.display_name ack_name,
-      (select json_build_object('kind', e.kind, 'at', e.at, 'detail', e.detail) from issue_events e where e.issue_id=i.id order by e.at desc, e.id desc limit 1) last_event
-    from case_issues i left join users u on u.id=i.owner_user_id left join users a on a.id=i.acknowledged_by where i.case_id=$1 and i.status <> 'resolved'`, [caseId]);
+  return attachIssues(r, await rows(db, OPEN_ISSUES_SQL, [[caseId]]), tz);
+}
+
+function attachIssues(r: any, issues: any[], tz: string) {
   const byKey = new Map(issues.map((i) => [i.issue_key, i]));
   const blockers = r.blockers.map((b) => {
     const i = byKey.get(b.key);
@@ -354,8 +390,17 @@ export async function readinessBoard(db: Db, ctx: Ctx, hours = 72) {
      from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id
      where c.scheduled_start between $1 and $2 and ${scope} order by c.scheduled_start`, [new Date(t.getTime() - 6 * 3600e3).toISOString(), new Date(t.getTime() + hours * 3600e3).toISOString(), ...sp]);
   const out: any[] = [];
+  const ids = cases.map((c) => c.id);
+  const pf = await prefetchReadiness(db, ids);
+  const results = new Map<string, any>();
   for (const c of cases) {
-    const r = await readinessWithIssues(db, ctx.tenantId, c.id);
+    const r = await caseReadiness(db, c.id, pf);
+    await syncIssues(db, ctx.tenantId, c.id, r, { c: pf.cases.get(c.id), existing: pf.issuesByCase.get(c.id) ?? [] });
+    results.set(c.id, r);
+  }
+  const openIssues = group(await rows(db, OPEN_ISSUES_SQL, [ids]), 'case_id');
+  for (const c of cases) {
+    const r = attachIssues(results.get(c.id), openIssues.get(c.id) ?? [], c.timezone);
     out.push({
       id: c.id, caseRef: c.case_ref, facility: c.facility_name, facilityCode: c.facility_code, facilityId: c.facility_id, timezone: c.timezone, procedure: c.procedure, surgeonRef: c.surgeon_ref,
       scheduledStart: c.scheduled_start, status: r.status, caseStatus: c.status, urgent: c.urgent, repName: c.rep_name, requiredBy: r.requiredBy, hoursNote: r.hoursNote,
