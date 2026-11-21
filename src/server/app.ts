@@ -184,6 +184,7 @@ export async function buildApp() {
     return { ...m, location: loc };
   });
   r('POST', '/api/trays/:id/verify', 'tray.verify', async (db, ctx, req) => ship.verifyTray(db, ctx, P(req).id, B(req)));
+  r('POST', '/api/discrepancies/:id/replacement', 'shipment.plan', async (db, ctx, req) => ship.sendReplacement(db, ctx, P(req).id));
   r('POST', '/api/discrepancies/:id/resolve', 'discrepancy.resolve', async (db, ctx, req) => ship.resolveDiscrepancy(db, ctx, P(req).id, B(req)));
 
   // ---------------- Closeout & offline ----------------

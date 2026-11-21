@@ -92,6 +92,27 @@ export async function createShipment(db: Db, ctx: Ctx, input: { fromLocationId: 
   return s;
 }
 
+/** Ship an exact replacement for a missing instrument: same catalog item, sealed, unreserved, not held, from a warehouse. */
+export async function sendReplacement(db: Db, ctx: Ctx, discrepancyId: string) {
+  requirePerm(ctx, 'shipment.plan');
+  const d = await one(db, `select * from discrepancies where id=$1`, [discrepancyId]);
+  if (d.kind !== 'missing_instrument' || d.status !== 'open' || !d.case_id) throw new AppError(409, 'bad_state', 'Only open missing-instrument discrepancies on a case can be replaced');
+  const c = await getVisibleCase(db, ctx, d.case_id);
+  const dest = await locationByKind(db, 'hospital_receiving', c.facility_id);
+  const already = await maybe(db, `select s.ref from shipments s join shipment_lines sl on sl.shipment_id=s.id join stock_items si on si.id=sl.stock_item_id where s.case_id=$1 and si.catalog_item_id=$2 and s.status not in ('cancelled','rejected')`, [c.id, d.catalog_item_id]);
+  if (already) throw new AppError(409, 'already_sent', `Replacement already on ${already.ref}`);
+  const src = await maybe(db, `select b.* from stock_balances b join stock_items s on s.id=b.stock_item_id join locations l on l.id=b.location_id
+     where s.catalog_item_id=$1 and l.kind='warehouse' and b.condition='sealed' and b.qty>0
+       and not exists (select 1 from quality_holds h where h.stock_item_id=b.stock_item_id and h.status='active')
+       and not exists (select 1 from reservations r where r.stock_item_id=b.stock_item_id and r.status='active') limit 1`, [d.catalog_item_id]);
+  if (!src) throw new AppError(409, 'none_available', 'No unreserved, unheld unit of that exact instrument is in a warehouse');
+  const s = await createShipment(db, ctx, { fromLocationId: src.location_id, toLocationId: dest.id, caseId: c.id, kind: 'case_delivery', lines: [{ stockItemId: src.stock_item_id, ownerPartyId: src.owner_party_id, qty: 1 }], note: `Replacement for discrepancy ${discrepancyId}` });
+  const policy = await getPolicy(db, c.facility_id);
+  await db.query(`update shipments set due_by=$2 where id=$1`, [s.id, new Date(new Date(c.scheduled_start).getTime() - policy.tray_due_hours_before * 3600e3).toISOString()]);
+  await notifyRole(db, ctx.tenantId, ['warehouse'], { kind: 'replacement', message: `Pick replacement instrument on ${s.ref} for ${c.case_ref}`, caseId: c.id, facilityId: c.facility_id, dedupe: `repl:${s.id}` });
+  return s;
+}
+
 export async function pickQueue(db: Db, ctx: Ctx) {
   requirePerm(ctx, 'shipment.pick');
   const list = await rows(db, `select s.*, fl.name from_name, fl.kind from_kind, fl.holder_user_id, tl.name to_name, c.case_ref, c.scheduled_start, f.timezone, te.minutes travel_min,

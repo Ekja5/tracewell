@@ -71,7 +71,8 @@ export function CaseDetail() {
         <h2>Shipments and discrepancies</h2>
         {data.shipments.map((s: any) => <div key={s.id}><Link to={`/shipments/${s.id}`}>{s.ref}</Link> {s.kind.replace('_', ' ')}: {s.from_name} → {s.to_name} <Status s={s.status} /></div>)}
         {!data.shipments.length && <p className="muted">No shipments.</p>}
-        {data.discrepancies.map((d: any) => <div key={d.id} className="small"><Status s={d.status === 'open' ? 'blocked' : 'closed'} /> {d.kind.replace(/_/g, ' ')}: {d.detail}{d.resolution ? ` | Resolved: ${d.resolution}` : ''}</div>)}
+        {data.discrepancies.map((d: any) => <div key={d.id} className="small"><Status s={d.status === 'open' ? 'blocked' : 'closed'} /> {d.kind.replace(/_/g, ' ')}: {d.detail}{d.resolution ? ` | Resolved: ${d.resolution}` : ''}
+          {d.status === 'open' && d.kind === 'missing_instrument' && can('shipment.plan') && <button className="link" onClick={() => act(() => post(`/api/discrepancies/${d.id}/replacement`), (s) => `Replacement shipment ${s.ref} created for the warehouse pick queue.`)}>Send exact replacement from warehouse</button>}</div>)}
       </section>
 
       {can('case.manage') && c.status === 'scheduled' && <ScheduleForms c={c} catalog={data.requirements} act={act} />}

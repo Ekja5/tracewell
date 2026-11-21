@@ -263,7 +263,7 @@ describe('Closeout, packages, offline sync, billing and ERP', () => {
     const csv = 'source_id,owner,location_code,item_ref,lot,serial,expiry,package_level,quantity,uom\nRP-1,Lakeshore Orthopedic Partners (synthetic),WH-MAIN,NP-SCR-650,S26B099,,2029-01-31,each,3,EA\nRP-2,Lakeshore Orthopedic Partners (synthetic),WH-MAIN,NP-INS-4-12,L26C020,INS12-0777,2028-01-31,each,1,EA\nRP-2,Lakeshore Orthopedic Partners (synthetic),WH-MAIN,NP-INS-4-12,L26C020,INS12-0777,2028-01-31,each,1,EA\n';
     const dry = await tx(async (db) => runImport(db, inv, { kind: 'opening_balances', filename: 'r.csv', sourceSystem: 'REPLAY', csv, mode: 'dry_run' }));
     expect(dry.counts).toMatchObject({ accepted: 2, duplicate_in_file: 1 });
-    expect(dry.reconciliation.units_posted_to_ledger).toBe(0);
+    expect(dry.reconciliation?.units_posted_to_ledger).toBe(0);
     const first = await tx(async (db) => runImport(db, inv, { kind: 'opening_balances', filename: 'r.csv', sourceSystem: 'REPLAY', csv, mode: 'commit' }));
     expect(first.reconciliation).toMatchObject({ units_posted_to_ledger: 4, ledger_matches: true });
     const movesBefore = await count(`select count(*) n from inventory_movements`);
