@@ -34,7 +34,7 @@ export async function verifyRecall(db: Db, ctx: Ctx, id: string, input: { confir
 }
 
 export async function recallMatches(db: Db, id: string) {
-  const r = await one(db, `select r.*, ci.ref, ci.description, p.name manufacturer from recalls r join catalog_items ci on ci.id=r.catalog_item_id join parties p on p.id=r.manufacturer_party_id where r.id=$1`, [id]);
+  const r = await one(db, `select r.*, ci.ref item_ref, ci.description item_description, p.name manufacturer from recalls r join catalog_items ci on ci.id=r.catalog_item_id join parties p on p.id=r.manufacturer_party_id where r.id=$1`, [id]);
   const col = r.scope_type === 'lot' ? 'lot_number' : 'serial_number';
   const stock = await rows(db, `select * from stock_items where catalog_item_id=$1 and ${col} = any($2)`, [r.catalog_item_id, r.scope_values]);
   const ids = stock.map((s) => s.id);
@@ -161,7 +161,7 @@ export async function closeRecall(db: Db, ctx: Ctx, id: string, input: { evidenc
 }
 
 export async function qualityHome(db: Db, ctx: Ctx) {
-  const recalls = await rows(db, `select r.*, ci.ref, ci.description, (select count(*)::int from recall_tasks t where t.recall_id=r.id and t.status='open') open_tasks,
+  const recalls = await rows(db, `select r.*, ci.ref item_ref, ci.description item_description, (select count(*)::int from recall_tasks t where t.recall_id=r.id and t.status='open') open_tasks,
      (select count(*)::int from recall_tasks t where t.recall_id=r.id and t.status='open' and t.acknowledged_at is null) unacked from recalls r join catalog_items ci on ci.id=r.catalog_item_id order by r.entered_at desc`);
   const holds = await rows(db, `select h.*, s.serial_number, s.lot_number, ci.ref, r.ref recall_ref from quality_holds h join stock_items s on s.id=h.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id left join recalls r on r.id=h.recall_id where h.status='active' order by h.placed_at desc`);
   const myTasks = await rows(db, `select t.*, r.ref, l.name location_name, c.case_ref from recall_tasks t join recalls r on r.id=t.recall_id left join locations l on l.id=t.location_id left join cases c on c.id=t.case_id

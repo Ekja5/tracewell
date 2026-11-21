@@ -207,7 +207,7 @@ export async function usageReportCsv(db: Db, ctx: Ctx, caseId: string) {
   const ev = await rows(db, `select ue.*, ci.ref, ci.description, si.serial_number, si.lot_number, si.expiry_date, u.display_name actor from usage_events ue left join catalog_items ci on ci.id=ue.catalog_item_id
      left join stock_items si on si.id=ue.stock_item_id join users u on u.id=ue.actor_user_id where ue.case_id=$1 order by ue.occurred_at`, [caseId]);
   const head = ['case_ref', 'facility', 'disposition', 'ref', 'description', 'serial', 'lot', 'expiry', 'qty_units', 'package_gtin', 'units_per_package', 'entry_method', 'raw_scan', 'status', 'review_reason', 'recorded_offline', 'occurred_at', 'recorded_at', 'recorded_by'];
-  const lines = ev.map((e) => [c.case_ref, c.facility_name, e.disposition, e.ref, e.description, e.serial_number, e.lot_number, e.expiry_date, e.qty_units, e.package_gtin, e.units_per_package, e.entry_method, e.raw_scan?.replace(/\x1d/g, '<GS>'), e.status, e.review_reason, e.recorded_offline, new Date(e.occurred_at).toISOString(), new Date(e.recorded_at).toISOString(), e.actor]);
+  const lines = ev.map((e) => [c.case_ref, c.facility_name, e.disposition, e.ref, e.description, e.serial_number, e.lot_number, e.expiry_date, e.reviewed_qty_units ?? e.qty_units, e.package_gtin, e.units_per_package, e.entry_method, e.raw_scan?.replace(/\x1d/g, '<GS>'), e.status, e.review_reason, e.recorded_offline, new Date(e.occurred_at).toISOString(), new Date(e.recorded_at).toISOString(), e.actor]);
   return [`# SYNTHETIC PILOT DATA. Usage report for ${c.case_ref}. "implanted" is the only disposition that represents an implant placed in a patient.`, head.join(','), ...lines.map((l) => l.map(csvCell).join(','))].join('\n') + '\n';
 }
 

@@ -100,6 +100,7 @@ export async function runImport(db: Db, ctx: Ctx, input: { kind: ImportKind; fil
   const items = new Map((await rows(db, `select * from catalog_items`)).map((i) => [i.ref.toLowerCase(), i]));
   const locations = new Map((await rows(db, `select * from locations`)).map((l) => [l.code.toLowerCase(), l]));
   const pkgs = await rows(db, `select * from packages`);
+  const lotExpiry = new Map((await rows(db, `select catalog_item_id, lot_number, expiry_date from stock_items where serial_number is null and expiry_date is not null`)).map((r) => [`${r.catalog_item_id}:${r.lot_number}`, r.expiry_date]));
   const gtins = new Set((await rows(db, `select unit_gtin g from catalog_items where unit_gtin is not null union select gtin from packages`)).map((r) => r.g));
 
   records.forEach((rec, idx) => {
@@ -145,6 +146,8 @@ export async function runImport(db: Db, ctx: Ctx, input: { kind: ImportKind; fil
           if (v.package_level && v.package_level !== 'each') errors.push('Serialized rows must be counted at package_level each');
           natural(`serial:${item.ref}:${v.serial}`);
         } else if (!v.lot) errors.push(`${item.ref} is lot-tracked; lot is required`);
+        const known = lotExpiry.get(`${item.id}:${v.lot}`);
+        if (v.lot && v.expiry && known && known !== v.expiry) errors.push(`expiry ${v.expiry} conflicts with recorded expiry ${known} for lot ${v.lot}`);
         // Package conversion must come from a configured package; never guessed.
         if (v.package_level === 'each') {
           if (v.uom && v.uom.toUpperCase() !== item.uom.toUpperCase()) errors.push(`uom ${v.uom} does not match unit uom ${item.uom}`);

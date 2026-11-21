@@ -226,8 +226,10 @@ export async function caseReadiness(db: Db, caseId: string) {
       if (r.hold_reason) { blockers.push({ code: 'hold', severity: 'critical', message: `${label} is on quality hold (${r.hold_reason}). It cannot be used or shipped.`, owner: 'Quality manager', ownerRole: 'quality_manager', action: 'Find an unaffected unit', requiredBy: due.toISOString(), link: `/cases/${caseId}/rescue/${req.id}` }); u.state = 'on hold'; continue; }
       if (r.expiry_date && r.expiry_date < planned) { blockers.push({ code: 'expired', severity: 'critical', message: `${label} expires ${r.expiry_date}, before the planned use date ${planned}.`, owner: repName, ownerRole: 'rep', action: 'Replace with an in-date unit', link: `/cases/${caseId}/rescue/${req.id}` }); u.state = 'expires before use'; continue; }
       if (r.loc_facility === c.facility_id && ['hospital_receiving', 'hospital_spd', 'consignment'].includes(r.loc_kind)) {
-        const recv = await maybe(db, `select max(occurred_at) at from inventory_movements where stock_item_id=$1 and movement_type in ('receive','opening_balance') and to_location_id=$2`, [r.stock_item_id, r.location_id]);
-        bump(recv?.at, 'received at facility', label);
+        const recv = await maybe(db, `select occurred_at at, movement_type from inventory_movements where stock_item_id=$1 and movement_type in ('receive','opening_balance','adjustment') and to_location_id=$2 order by occurred_at desc limit 1`, [r.stock_item_id, r.location_id]);
+        if (recv) bump(recv.at, recv.movement_type === 'receive' ? 'received and checked at facility' : recv.movement_type === 'opening_balance' ? 'opening balance import (not a physical check)' : 'count adjustment', label);
+        const cnt = await maybe(db, `select max(cl.counted_at) at from count_lines cl join count_sessions cs on cs.id=cl.session_id where cl.stock_item_id=$1 and cs.location_id=$2`, [r.stock_item_id, r.location_id]);
+        if (cnt?.at) bump(cnt.at, 'cycle count', label);
         if (req.item_type === 'tray') {
           const v = await maybe(db, `select * from tray_verifications where tray_stock_item_id=$1 and location_id in (select id from locations where facility_id=$2) order by verified_at desc, recorded_at desc limit 1`, [r.stock_item_id, c.facility_id]);
           const openD = await rows(db, `select d.*, ci.ref, ci.description from discrepancies d left join catalog_items ci on ci.id=d.catalog_item_id where d.tray_stock_item_id=$1 and d.status='open'`, [r.stock_item_id]);
@@ -282,7 +284,7 @@ export async function caseReadiness(db: Db, caseId: string) {
   const feed = await maybe(db, `select * from integration_feeds where code=$1`, [`sched-${c.facility_code}`]);
   if (feed) {
     const stale = !feed.last_success_at || t.getTime() - new Date(feed.last_success_at).getTime() > feed.stale_after_minutes * 60e3;
-    if (stale) blockers.push({ code: 'stale_feed', severity: 'warning', message: `${feed.name} (simulated) last synced ${feed.last_success_at ? fmtLocal(feed.last_success_at, c.timezone) : 'never'}; the case time has not been reconfirmed with the hospital schedule.`, owner: 'Scheduler', ownerRole: 'scheduler', action: 'Confirm case time with hospital', link: '/integrations' });
+    if (stale) blockers.push({ code: 'stale_feed', severity: 'warning', message: `${feed.name} last synced ${feed.last_success_at ? fmtLocal(feed.last_success_at, c.timezone) : 'never'}; the case time has not been reconfirmed with the hospital schedule.`, owner: 'Scheduler', ownerRole: 'scheduler', action: 'Confirm case time with hospital', link: '/integrations' });
   }
 
   const status = c.status !== 'scheduled' ? c.status : blockers.some((b) => b.severity === 'critical') ? 'blocked' : blockers.length ? 'at_risk' : 'ready';

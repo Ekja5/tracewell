@@ -15,7 +15,11 @@ export async function getVisibleShipment(db: Db, ctx: Ctx, id: string) {
     left join facilities tf on tf.id=tl.facility_id left join cases c on c.id=s.case_id where s.id=$1`, [id]);
   if (!s) throw new AppError(404, 'not_found', 'Shipment not found');
   if (isFacilityUser(ctx) && s.to_facility !== ctx.facilityId && s.from_facility !== ctx.facilityId) throw new AppError(404, 'not_found', 'Shipment not found');
-  if (ctx.role === 'rep' && s.case_id) await getVisibleCase(db, ctx, s.case_id);
+  // Reps see shipments for visible cases, plus anything leaving or arriving at their own trunk.
+  if (ctx.role === 'rep' && s.case_id && s.from_holder !== ctx.userId) {
+    const toHolder = await maybe(db, `select holder_user_id from locations where id=$1`, [s.to_location_id]);
+    if (toHolder?.holder_user_id !== ctx.userId) await getVisibleCase(db, ctx, s.case_id);
+  }
   return s;
 }
 

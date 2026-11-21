@@ -126,9 +126,11 @@ export async function buildApp() {
   r('GET', '/api/board', 'board.view', async (db, ctx, req) => readinessBoard(db, ctx, Math.min(168, Number(Q(req).hours ?? 72))));
   r('GET', '/api/cases', 'board.view', async (db, ctx, req) => {
     const [scope, sp] = caseScope(ctx, 1);
-    const mine = Q(req).mine === '1' ? ` and c.rep_user_id = '${ctx.userId}'` : '';
+    const mine = Q(req).mine === '1';
+    const params = mine ? [...sp, ctx.userId] : sp;
+    const mineSql = mine ? ` and c.rep_user_id = $${params.length}` : '';
     return rows(db, `select c.id, c.case_ref, c.status, c.scheduled_start, c.procedure, c.urgent, f.name facility, f.timezone, u.display_name rep_name, c.rep_user_id
-       from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id where ${scope}${mine} order by c.scheduled_start`, sp);
+       from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id where ${scope}${mineSql} order by c.scheduled_start`, params);
   });
   r('POST', '/api/cases', 'case.manage', async (db, ctx, req) => createCase(db, ctx, B(req)));
   r('GET', '/api/cases/:id', 'board.view', async (db, ctx, req) => {
@@ -390,7 +392,7 @@ export async function buildApp() {
   // ---------------- Static web app ----------------
   const webDir = fileURLToPath(new URL('../../dist/web/', import.meta.url));
   if (existsSync(webDir)) {
-    await app.register(fstatic, { root: webDir, prefix: '/', wildcard: false });
+    await app.register(fstatic, { root: webDir, prefix: '/' });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) return reply.code(404).send({ error: 'not_found', message: 'Not found' });
       return reply.type('text/html').sendFile('index.html');
