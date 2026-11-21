@@ -59,7 +59,7 @@ ul.blockers { margin:6px 0; padding-left:18px; } ul.blockers li { margin-bottom:
 .scanbox { width:100%; font-size:1.1rem; min-height:56px; }
 .disp-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
 .disp-grid button { min-height:56px; }
-.disp-grid button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); }
+.disp-grid button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
 dialog { border:0; border-radius:12px; padding:20px; max-width:min(720px, 96vw); box-shadow:0 10px 40px rgba(0,0,0,.25); }
 dialog::backdrop { background:rgba(0,0,0,.35); }
 .login { max-width:860px; margin:40px auto; padding:0 16px; }
