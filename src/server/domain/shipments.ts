@@ -281,6 +281,8 @@ export async function rejectShipment(db: Db, ctx: Ctx, shipmentId: string, input
   return shipmentDetail(db, ctx, shipmentId);
 }
 
+export async function raiseDiscrepancy(db: Db, ctx: Ctx, d: { shipmentId?: string | null; caseId?: string | null; stockItemId?: string | null; catalogItemId?: string | null; trayStockItemId?: string | null; kind: string; qty?: number | null; detail: string }) { return disc(db, ctx, d); }
+
 async function disc(db: Db, ctx: Ctx, d: { shipmentId?: string | null; caseId?: string | null; stockItemId?: string | null; catalogItemId?: string | null; trayStockItemId?: string | null; kind: string; qty?: number | null; detail: string }) {
   const r = await db.query(`insert into discrepancies(tenant_id, shipment_id, case_id, stock_item_id, catalog_item_id, tray_stock_item_id, kind, qty, detail, status, reported_by, reported_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11) returning id`,
     [ctx.tenantId, d.shipmentId ?? null, d.caseId ?? null, d.stockItemId ?? null, d.catalogItemId ?? null, d.trayStockItemId ?? null, d.kind, d.qty ?? null, d.detail, ctx.userId, nowIso()]);

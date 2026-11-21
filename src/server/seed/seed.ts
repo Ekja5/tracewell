@@ -45,6 +45,7 @@ export function demoDate() {
 const G = (n: number) => gtinWithCheckDigit('0061414' + String(n).padStart(6, '0'));
 export const GTIN = {
   INS_4_10: G(100101), INS_4_12: G(100102), FEM_4L: G(100201), FEM_5L: G(100202), TIB_4: G(100301), SCR_650: G(100401), SCR_650_BOX5: gtinWithCheckDigit('1061414100401'),
+  PAT_32: G(100601), WB_PAT_32: gtinWithCheckDigit('0712345000321'),
   TRAY_KNEE: G(100901), SIZER: G(100501), CUT4: G(100502), TIBGUIDE: G(100503), IMPACT: G(100504), TRIAL4: G(100505),
 };
 
@@ -385,6 +386,71 @@ export async function seed(opts: { quiet?: boolean } = {}) {
     await db.query(`insert into sync_differences(tenant_id,feed_id,entity,entity_ref,field,our_value,their_value,status,created_at) values ($1,$2,'case','SYN-1002','scheduled_start','13:00 EST','13:30 EST (last feed message, 9 h old)','open',$3)`, [T, feed.id, nowIso()]);
   });
   await setClock(anchor);
+
+  // ---------- Ask-operations scenario (third pass) ----------
+  // Patella button NP-PAT-32: 6 Northpoint units (4 reserved for other cases, closest one on hold, 1 available
+  // in Jordan's trunk). A second manufacturer (Westbrook) uses the same catalog number. Tray 14 has a 24-piece
+  // manifest. SYN-1004 is an urgent add-on loaded today from the (simulated) hospital schedule.
+  await setClock(new Date(anchor.getTime() - 20 * 3600e3));
+  await withTenant(T, (db) => db.query(`insert into parties(tenant_id,name,kind) values ($1,'Westbrook Surgical (synthetic)','manufacturer')`, [T]));
+  await withTenant(T, (db) => runImport(db, inv, { kind: 'catalog', filename: 'patella_catalog_synthetic.csv', sourceSystem: 'NORTHPOINT-PRICEFILE-SIM', mode: 'commit',
+    csv: csv(['source_id', 'manufacturer', 'ref', 'description', 'item_type', 'tracking', 'unit_gtin', 'size', 'product_line', 'uom'], [
+      ['NP-MAT-1007', MFR, 'NP-PAT-32', 'Meridian patella button, 32 mm', 'implant', 'serial', GTIN.PAT_32, '32mm', LINE, 'EA'],
+      ['WB-MAT-0032', 'Westbrook Surgical (synthetic)', 'NP-PAT-32', 'Westbrook resurfacing patella, 32 mm (different product, same catalog number)', 'implant', 'serial', GTIN.WB_PAT_32, '32mm', 'Westbrook Knee (synthetic)', 'EA']]) }));
+  await withTenant(T, (db) => runImport(db, inv, { kind: 'opening_balances', filename: 'patella_balances_synthetic.csv', sourceSystem: 'LEGACY-SPREADSHEET-SIM', mode: 'commit',
+    csv: csv(['source_id', 'owner', 'location_code', 'item_ref', 'manufacturer', 'lot', 'serial', 'expiry', 'package_level', 'quantity', 'uom'], [
+      ...[1, 2, 3, 4].map((n) => [`OB-PAT-${n}`, DIST, 'WH-MAIN', 'NP-PAT-32', MFR, 'P26D040', `PAT-000${n}`, exp(1000), 'each', '1', 'EA']),
+      ['OB-PAT-5', DIST, 'TRUNK-JORDAN', 'NP-PAT-32', MFR, 'P26D040', 'PAT-0005', exp(1000), 'each', '1', 'EA'],
+      ['OB-PAT-6', DIST, 'TRUNK-RILEY', 'NP-PAT-32', MFR, 'P26D041', 'PAT-0006', exp(1000), 'each', '1', 'EA'],
+      ['OB-WB-1', DIST, 'WH-MAIN', 'NP-PAT-32', 'Westbrook Surgical (synthetic)', 'WB-L7', 'WB-PAT-01', exp(500), 'each', '1', 'EA'],
+      ['OB-WB-2', DIST, 'WH-MAIN', 'NP-PAT-32', 'Westbrook Surgical (synthetic)', 'WB-L7', 'WB-PAT-02', exp(500), 'each', '1', 'EA'],
+      ['OB-T14', MFR, 'SBR-RECV', 'NP-TRAY-KNEE', MFR, 'T-LOANER', 'TRY-K-014', '', 'each', '1', 'EA'],
+    ]) }));
+  await withTenant(T, async (db) => {
+    const pat = (await one(db, `select ci.id from catalog_items ci join parties p on p.id=ci.manufacturer_party_id where ci.ref='NP-PAT-32' and p.name=$1`, [MFR])).id;
+    const held = await one(db, `select id from stock_items where serial_number='PAT-0006'`);
+    await db.query(`insert into quality_holds(tenant_id,stock_item_id,reason,status,placed_by,placed_at) values ($1,$2,'Seal inspection QH-0051 (synthetic)','active',$3,$4)`, [T, held.id, ids['u:quality'].id, nowIso()]);
+    // Tray 14: same tray type, its own approved 24-piece manifest version.
+    const trayItem = (await one(db, `select id from catalog_items where ref='NP-TRAY-KNEE'`)).id;
+    const mv3 = (await db.query(`insert into tray_manifest_versions(tenant_id,tray_catalog_item_id,version,status,approved_by,approved_at) values ($1,$2,3,'approved',$3,$4) returning id`, [T, trayItem, ops.userId, nowIso()])).rows[0].id;
+    for (const [ref, qty] of [['NP-INST-SIZER', 2], ['NP-INST-CUT4', 4], ['NP-INST-TIBGUIDE', 6], ['NP-INST-IMPACT', 4], ['NP-INST-TRIAL4', 8]] as const)
+      await db.query(`insert into tray_manifest_lines(tenant_id,manifest_version_id,catalog_item_id,qty,required) values ($1,$2,(select id from catalog_items where ref=$3),$4,true)`, [T, mv3, ref, qty]);
+    await db.query(`insert into tray_instances(stock_item_id,tenant_id,manifest_version_id) select id,$1,$2 from stock_items where serial_number='TRY-K-014'`, [T, mv3]);
+    // Patella requirements: 2 each on SYN-1002 and SYN-1003 (reserved from the warehouse); SYN-1005 (below) needs 2 and has none.
+    const { updateRequirement } = await import('../domain/cases.js');
+    for (const ref of ['SYN-1002', 'SYN-1003']) {
+      const cid = (await one(db, `select id from cases where case_ref=$1`, [ref])).id;
+      await updateRequirement(db, sched, cid, { catalogItemId: pat, qty: 2, mandatory: true, reason: 'Surgeon office added patella resurfacing (synthetic)' });
+    }
+    for (const [caseRef, sns] of [['SYN-1003', ['PAT-0001', 'PAT-0002']], ['SYN-1002', ['PAT-0003', 'PAT-0004']]] as const) {
+      const cid = (await one(db, `select id from cases where case_ref=$1`, [caseRef])).id;
+      const rq = (await one(db, `select id from case_requirements where case_id=$1 and catalog_item_id=$2`, [cid, pat])).id;
+      for (const sn of sns) await reserve(db, ops, { caseId: cid, requirementId: rq, stockItemId: await stockId(db, sn), locationId: ids.L_WH, ownerPartyId: ids.dist, qty: 1 });
+    }
+    // SYN-1005: Riley's late-morning case tomorrow, tray-only card; Tray 14 is already at St. Brigid receiving.
+    const card = (await db.query(`insert into preference_cards(tenant_id,code,surgeon_ref,procedure) values ($1,'PC-TRAY-S211','Surgeon S-211 (synthetic)','Knee arthroscopy with loaner instruments') returning id`, [T])).rows[0].id;
+    const v = (await db.query(`insert into preference_card_versions(tenant_id,card_id,version,status,approved_by,approved_at,change_note) values ($1,$2,1,'approved',$3,$4,'Instrument card; implants added per case') returning id`, [T, card, ops.userId, nowIso()])).rows[0].id;
+    await db.query(`insert into preference_card_lines(tenant_id,card_version_id,catalog_item_id,qty,mandatory) values ($1,$2,$3,1,true)`, [T, v, trayItem]);
+    const c5 = await createCase(db, sched, { facilityId: ids.SBR, cardVersionId: v, scheduledStart: zoned(tomorrow, '11:00', CHI).toISOString(), repUserId: riley.userId, caseRef: 'SYN-1005' });
+    const rq5 = (await one(db, `select id from case_requirements where case_id=$1`, [c5.id])).id;
+    await updateRequirement(db, sched, c5.id, { catalogItemId: pat, qty: 2, mandatory: true, reason: 'Surgeon office added patella resurfacing (synthetic)' });
+    await reserve(db, ops, { caseId: c5.id, requirementId: rq5, stockItemId: await stockId(db, 'TRY-K-014'), locationId: ids.L_SBR_RECV, ownerPartyId: ids.mfr, qty: 1 });
+  });
+  // SYN-1004: urgent add-on at Prairie Valley tomorrow 08:00 EST, loaded today (no history before today).
+  await setClock(new Date(anchor.getTime() - 30 * 60e3));
+  await withTenant(T, async (db) => {
+    const c4 = await createCase(db, sched, { facilityId: ids.PVS, cardVersionId: ids.cardV2, scheduledStart: zoned(tomorrow, '08:00', IND).toISOString(), repUserId: jordan.userId, urgent: true, caseRef: 'SYN-1004' });
+    await db.query(`update cases set created_by=null where id=$1`, [c4.id]); // loaded from the schedule feed snapshot
+  });
+  await setClock(anchor);
+  // Derive issues once, then record that one owner went on leave (an unassigned item for the call list).
+  await withTenant(T, async (db) => {
+    const { readinessBoard } = await import('../domain/cases.js');
+    await readinessBoard(db, ops, 72);
+    const iss = await one(db, `select i.id from case_issues i join cases c on c.id=i.case_id where c.case_ref='SYN-1002' and i.message like '%TIB4-0205%'`);
+    await db.query(`update case_issues set owner_user_id=null, owner_locked=true where id=$1`, [iss.id]);
+    await db.query(`insert into issue_events(tenant_id, issue_id, kind, actor_user_id, at, detail) values ($1,$2,'assigned',$3,$4,'Previous owner unavailable today; left unassigned pending reassignment')`, [T, iss.id, ops.userId, nowIso()]);
+  });
   log(`demo clock set to ${anchor.toISOString()} (demo date ${D}, ${process.env.DEMO_TIME ?? '08:00'} America/Chicago)`);
 
   // ---------- Tenant 2 (isolation proof) ----------

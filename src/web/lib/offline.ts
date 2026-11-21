@@ -15,12 +15,16 @@ export interface QueuedEvent { clientEventId: string; userId: string; caseId: st
 const DB = 'tracewell-offline';
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => {
+    const r = indexedDB.open(DB, 2);
+    r.onupgradeneeded = (ev) => {
       const db = r.result;
-      db.createObjectStore('packages', { keyPath: 'key' });
-      const q = db.createObjectStore('queue', { keyPath: 'clientEventId' });
-      q.createIndex('byUser', 'userId');
+      if (ev.oldVersion < 1) {
+        db.createObjectStore('packages', { keyPath: 'key' });
+        const q = db.createObjectStore('queue', { keyPath: 'clientEventId' });
+        q.createIndex('byUser', 'userId');
+      }
+      // v2: field quick notes, saved under the signed-in user and case until the server has them.
+      if (ev.oldVersion < 2) db.createObjectStore('notes', { keyPath: 'clientNoteId' }).createIndex('byUser', 'userId');
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
@@ -58,6 +62,33 @@ export async function removePending(clientEventId: string) {
   const e = await tx<QueuedEvent>('queue', 'readonly', (s) => s.get(clientEventId));
   if (!e || e.state !== 'pending') throw new Error('Only entries still saved on the phone can be removed; use Correct for server-confirmed entries.');
   await tx('queue', 'readwrite', (s) => s.delete(clientEventId));
+}
+
+// ---------- Quick notes (handoff) ----------
+export interface LocalNote { clientNoteId: string; userId: string; caseId: string; text: string; capturedAt: string; state: 'pending' | 'submitted' | 'failed'; noteId?: string | null; error?: string | null }
+export async function saveNote(n: Omit<LocalNote, 'state'>) { await tx('notes', 'readwrite', (s) => s.put({ ...n, state: 'pending' })); window.dispatchEvent(new Event('tw-queue')); }
+export async function listNotes(userId: string, caseId?: string): Promise<LocalNote[]> {
+  const all = await tx<LocalNote[]>('notes', 'readonly', (s) => s.index('byUser').getAll(userId));
+  return (all ?? []).filter((n) => !caseId || n.caseId === caseId).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+}
+let syncingNotes = false;
+/** Send pending notes. Repeats are safe: the server keys each note by its clientNoteId. */
+export async function syncNotes(userId: string): Promise<number> {
+  if (syncingNotes || !isOnline()) return 0;
+  syncingNotes = true; let sent = 0;
+  try {
+    for (const n of (await listNotes(userId)).filter((x) => x.state === 'pending')) {
+      try {
+        const r = await post<any>('/api/handoff-notes', { clientNoteId: n.clientNoteId, caseId: n.caseId, text: n.text, capturedAt: n.capturedAt });
+        await tx('notes', 'readwrite', (s) => s.put({ ...n, state: 'submitted', noteId: r.note.id, error: null })); sent++;
+      } catch (e: any) {
+        if (e?.status && e.status < 500) await tx('notes', 'readwrite', (s) => s.put({ ...n, state: 'failed', error: e.message }));
+        else break; // network or server down: keep pending and retry later
+      }
+    }
+  } finally { syncingNotes = false; }
+  if (sent) window.dispatchEvent(new Event('tw-notes-synced'));
+  return sent;
 }
 
 let syncing = false;

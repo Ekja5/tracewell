@@ -16,9 +16,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test --trace off",
-    "test:all": "bash scripts/test-all.sh"
+    "test:all": "bash scripts/test-all.sh",
+    "eval:assistant": "vitest run tests/integration/assistant-eval.test.ts",
+    "eval:assistant:provider": "EVAL_MODE=provider vitest run tests/integration/assistant-eval.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
     "@fastify/cookie": "^11.1.5",
     "@fastify/static": "^8.3.0",
     "bcryptjs": "^3.0.3",

@@ -20,6 +20,10 @@ import * as counts from './domain/counts.js';
 import { ingestAck, integrationStatus, processOutboxForTenant, runSimulatedScheduleSync } from './domain/erp.js';
 import { computeMetrics } from './domain/metrics.js';
 import * as issues from './domain/issues.js';
+import { ask, assistantStatus } from './assistant/engine.js';
+import * as drafts from './assistant/drafts.js';
+import * as notes from './assistant/notes.js';
+import type { AssistantCtx } from './assistant/types.js';
 import { AVAILABILITY_SQL, ledgerReconciliation, reverseMovement, reserve } from './domain/inventory.js';
 import { parseScan } from '../shared/gs1.js';
 
@@ -165,8 +169,28 @@ export async function buildApp() {
   r('POST', '/api/issues/:id/note', null, async (db, ctx, req) => issues.noteIssue(db, ctx, P(req).id, B(req)));
   r('GET', '/api/handoff', 'board.view', async (db, ctx, req) => issues.handoff(db, ctx, Math.min(72, Number(Q(req).hours ?? 12))));
 
+  // ---------------- Ask operations (assistant), drafts, quick notes ----------------
+  const actxOf = async (db: Db, ctx: Ctx): Promise<AssistantCtx> => ({ ...ctx, tenantTz: (await one(db, `select timezone from tenants where id=$1`, [ctx.tenantId])).timezone });
+  r('GET', '/api/assistant/status', 'board.view', async () => assistantStatus());
+  r('POST', '/api/assistant/ask', 'board.view', async (db, ctx, req) => ask(db, await actxOf(db, ctx), B(req)));
+  r('POST', '/api/assistant/drafts', 'board.view', async (db, ctx, req) => {
+    const b = B(req); const actx = await actxOf(db, ctx);
+    // Follow-ups: a draft started from an answer uses that conversation's context (case, item, last eligible unit).
+    const conv = b.conversationId && /^[0-9a-f-]{36}$/i.test(b.conversationId) ? await maybe(db, `select context from assistant_conversations where id=$1 and user_id=$2`, [b.conversationId, ctx.userId]) : null;
+    const d = await drafts.createDraft(db, actx, b.kind, b, { ...(conv?.context ?? {}), ...(b.caseId ? { caseId: b.caseId } : {}), ...(b.requirementId ? { requirementId: b.requirementId } : {}) }, conv ? b.conversationId : null);
+    return { card: d.card, extra: (d as any).extra?.card ?? null };
+  });
+  r('GET', '/api/assistant/drafts/:id', 'board.view', async (db, ctx, req) => drafts.getDraft(db, await actxOf(db, ctx), P(req).id));
+  r('POST', '/api/assistant/drafts/:id/edit', 'board.view', async (db, ctx, req) => drafts.updateDraft(db, await actxOf(db, ctx), P(req).id, B(req)));
+  r('POST', '/api/assistant/drafts/:id/confirm', 'board.view', async (db, ctx, req) => drafts.confirmDraft(db, await actxOf(db, ctx), P(req).id));
+  r('POST', '/api/assistant/drafts/:id/discard', 'board.view', async (db, ctx, req) => drafts.discardDraft(db, await actxOf(db, ctx), P(req).id));
+  r('POST', '/api/handoff-notes', 'closeout.record', async (db, ctx, req) => notes.submitNote(db, ctx, B(req)));
+  r('GET', '/api/cases/:id/handoff-notes', 'closeout.record', async (db, ctx, req) => notes.listNotes(db, ctx, P(req).id));
+  r('POST', '/api/handoff-notes/:id/revise', 'closeout.record', async (db, ctx, req) => notes.reviseNote(db, ctx, P(req).id, B(req)));
+  r('POST', '/api/handoff-notes/:id/approve', 'closeout.record', async (db, ctx, req) => notes.approveNote(db, ctx, P(req).id));
+
   // ---------------- Rescue ----------------
-  r('GET', '/api/availability', 'rescue.search', async (db, ctx, req) => exactItemAvailability(db, ctx, { q: Q(req).q, caseId: Q(req).caseId || null }));
+  r('GET', '/api/availability', 'rescue.search', async (db, ctx, req) => exactItemAvailability(db, ctx, { q: Q(req).q ?? '', caseId: Q(req).caseId || null, catalogItemId: Q(req).catalogItemId || null }));
   r('GET', '/api/cases/:id/rescue/:reqId', 'rescue.search', async (db, ctx, req) => rescueSearch(db, ctx, P(req).id, P(req).reqId));
   r('POST', '/api/cases/:id/rescue/:reqId/preview', 'rescue.search', async (db, ctx, req) => previewTransfer(db, ctx, P(req).id, P(req).reqId, B(req)));
   r('POST', '/api/cases/:id/rescue/:reqId/reserve', 'rescue.reserve', async (db, ctx, req) => reserveAndTransfer(db, ctx, P(req).id, P(req).reqId, B(req)));

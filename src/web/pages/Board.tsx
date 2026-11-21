@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useData, useMe, Status, Err } from '../App';
 import { fmtTime, relMinutes } from '../lib/api';
 import { IssueControls } from '../components/IssueControls';
+import { AskOpsButton } from '../components/AskOps';
 
 function timeLeft(mins: number | null) {
   if (mins == null) return null;
@@ -27,6 +28,7 @@ export function Board() {
         <div className="row tight">
           <button className={hours === 24 ? '' : 'secondary'} onClick={() => setHours(24)}>Tomorrow (24 h)</button>
           <button className={hours === 72 ? '' : 'secondary'} onClick={() => setHours(72)}>72 h</button>
+          <AskOpsButton />
           <Link className="btn secondary" to="/handoff">Shift handoff</Link>
           <button className="secondary" onClick={reload}>Refresh</button>
         </div>

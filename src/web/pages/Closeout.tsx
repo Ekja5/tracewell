@@ -32,7 +32,7 @@ export function MobileHome() {
           <div className="small muted">{c.procedure} · {c.facility}</div>
           <div className="big-actions" style={{ marginTop: 10 }}>
             <Link className="btn" to={`/cases/${c.id}/closeout?scan=1`}>Scan</Link>
-            <Link className="btn secondary" to={`/cases/${c.id}`}>Handoff</Link>
+            <Link className="btn secondary" to={`/cases/${c.id}/handoff`}>Handoff note</Link>
             <Link className="btn" to={`/cases/${c.id}/closeout`}>Close case</Link>
           </div>
         </div>))}

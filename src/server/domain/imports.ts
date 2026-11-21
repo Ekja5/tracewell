@@ -30,6 +30,7 @@ export const TEMPLATES: Record<ImportKind, { fields: { name: string; required: b
     fields: [
       { name: 'source_id', required: true, help: 'Stable source row ID', synonyms: ['id'] },
       { name: 'item_ref', required: true, help: 'Catalog reference number of the unit', synonyms: ['ref', 'catalog number'] },
+      { name: 'manufacturer', required: false, help: 'Manufacturer name; required only when two manufacturers share the catalog number', synonyms: ['mfr', 'vendor'] },
       { name: 'package_gtin', required: true, help: '14-digit GTIN printed on the package', synonyms: ['gtin', 'package di'] },
       { name: 'level', required: true, help: 'each | inner | case', synonyms: ['package level', 'pkg level'] },
       { name: 'units_per_package', required: true, help: 'Number of individual units in one package', synonyms: ['qty per package', 'units', 'quantity per package'] },
@@ -43,6 +44,7 @@ export const TEMPLATES: Record<ImportKind, { fields: { name: string; required: b
       { name: 'owner', required: true, help: 'Owning party name (distributor, manufacturer consignment, hospital)', synonyms: ['owner name', 'owned by'] },
       { name: 'location_code', required: true, help: 'Location code (warehouse bin, trunk, consignment)', synonyms: ['location', 'loc', 'bin'] },
       { name: 'item_ref', required: true, help: 'Catalog reference number', synonyms: ['ref', 'catalog number'] },
+      { name: 'manufacturer', required: false, help: 'Manufacturer name; required only when two manufacturers share the catalog number', synonyms: ['mfr', 'vendor'] },
       { name: 'lot', required: false, help: 'Lot / batch (required for lot-tracked items)', synonyms: ['batch', 'lot number'] },
       { name: 'serial', required: false, help: 'Serial (required for serial-tracked items; quantity must be 1)', synonyms: ['serial number', 'sn'] },
       { name: 'expiry', required: false, help: 'Expiry date YYYY-MM-DD', synonyms: ['expiration', 'exp', 'use by'] },
@@ -97,7 +99,19 @@ export async function runImport(db: Db, ctx: Ctx, input: { kind: ImportKind; fil
 
   // Reference data for validation.
   const parties = new Map((await rows(db, `select id, name from parties`)).map((p) => [p.name.toLowerCase(), p.id]));
-  const items = new Map((await rows(db, `select * from catalog_items`)).map((i) => [i.ref.toLowerCase(), i]));
+  // Catalog numbers are unique per manufacturer, not per tenant: resolve (manufacturer, ref) and never guess.
+  const allItems = await rows(db, `select * from catalog_items`);
+  const items = new Map(allItems.map((i) => [`${i.manufacturer_party_id}|${i.ref.toLowerCase()}`, i]));
+  const byRef = new Map<string, any[]>();
+  for (const i of allItems) byRef.set(i.ref.toLowerCase(), [...(byRef.get(i.ref.toLowerCase()) ?? []), i]);
+  const pick = (ref: string, mfrName: string, errors: string[]) => {
+    if (!ref) return null;
+    let cands = byRef.get(ref.toLowerCase()) ?? [];
+    if (mfrName) { const m = parties.get(mfrName.toLowerCase()); cands = cands.filter((c) => c.manufacturer_party_id === m); }
+    if (!cands.length) { errors.push(`Unknown item_ref ${ref}${mfrName ? ` for manufacturer "${mfrName}"` : ''}`); return null; }
+    if (cands.length > 1) { errors.push(`item_ref ${ref} is used by ${cands.length} manufacturers; fill the manufacturer column`); return null; }
+    return cands[0];
+  };
   const locations = new Map((await rows(db, `select * from locations`)).map((l) => [l.code.toLowerCase(), l]));
   const pkgs = await rows(db, `select * from packages`);
   const lotExpiry = new Map((await rows(db, `select catalog_item_id, lot_number, expiry_date from stock_items where serial_number is null and expiry_date is not null`)).map((r) => [`${r.catalog_item_id}:${r.lot_number}`, r.expiry_date]));
@@ -116,13 +130,13 @@ export async function runImport(db: Db, ctx: Ctx, input: { kind: ImportKind; fil
       if (v.item_type && !['implant', 'instrument', 'tray', 'disposable'].includes(v.item_type)) errors.push(`item_type must be implant|instrument|tray|disposable`);
       if (v.tracking && !['serial', 'lot'].includes(v.tracking)) errors.push('tracking must be serial|lot');
       if (v.unit_gtin && !gtinCheckDigitValid(v.unit_gtin)) errors.push(`unit_gtin ${v.unit_gtin} is not a valid 14-digit GTIN`);
-      const existing = items.get(v.ref?.toLowerCase());
+      const existing = items.get(`${parties.get(v.manufacturer?.toLowerCase())}|${v.ref?.toLowerCase()}`);
       if (existing && existing.source_id !== v.source_id) errors.push(`ref ${v.ref} already exists from source ${existing.source_system}:${existing.source_id}`);
       if (v.unit_gtin && gtins.has(v.unit_gtin) && !(existing && existing.unit_gtin === v.unit_gtin)) errors.push(`GTIN ${v.unit_gtin} is already assigned`);
-      natural(`ref:${v.ref}`);
+      natural(`ref:${v.manufacturer}|${v.ref}`);
       if (v.unit_gtin) natural(`gtin:${v.unit_gtin}`);
     } else if (kind === 'packages') {
-      if (v.item_ref && !items.has(v.item_ref.toLowerCase())) errors.push(`Unknown item_ref ${v.item_ref}`);
+      (r as any).item = pick(v.item_ref, v.manufacturer, errors);
       if (v.package_gtin && !gtinCheckDigitValid(v.package_gtin)) errors.push(`package_gtin ${v.package_gtin} is not a valid GTIN`);
       if (v.level && !['each', 'inner', 'case'].includes(v.level)) errors.push('level must be each|inner|case');
       if (v.units_per_package && !/^[1-9]\d*$/.test(v.units_per_package)) errors.push('units_per_package must be a positive whole number');
@@ -130,8 +144,8 @@ export async function runImport(db: Db, ctx: Ctx, input: { kind: ImportKind; fil
       if (ex && ex.source_id !== v.source_id) errors.push(`Package GTIN ${v.package_gtin} already configured (${ex.units_per_package} units)`);
       natural(`pkg:${v.package_gtin}`);
     } else {
-      const item = items.get(v.item_ref?.toLowerCase());
-      if (v.item_ref && !item) errors.push(`Unknown item_ref ${v.item_ref}`);
+      const item = pick(v.item_ref, v.manufacturer, errors);
+      (r as any).item = item;
       if (v.owner && !parties.has(v.owner.toLowerCase())) errors.push(`Unknown owner "${v.owner}"`);
       const loc = locations.get(v.location_code?.toLowerCase());
       if (v.location_code && !loc) errors.push(`Unknown location_code ${v.location_code}`);
@@ -184,7 +198,7 @@ export async function runImport(db: Db, ctx: Ctx, input: { kind: ImportKind; fil
   // Serial already on hand from another source.
   if (kind === 'opening_balances') {
     for (const r of results.filter((r) => r.status === 'accepted' && r.values.serial)) {
-      const item = items.get(r.values.item_ref.toLowerCase());
+      const item = (r as any).item;
       const ex = await maybe(db, `select l.code from stock_items s join stock_balances b on b.stock_item_id=s.id and b.qty>0 join locations l on l.id=b.location_id where s.catalog_item_id=$1 and s.serial_number=$2`, [item.id, r.values.serial]);
       if (ex) { r.status = 'conflict'; r.errors.push(`Serial ${r.values.serial} is already on hand at ${ex.code}`); }
     }
@@ -246,17 +260,17 @@ async function commitRow(db: Db, ctx: Ctx, kind: ImportKind, r: RowResult, batch
       `insert into catalog_items(tenant_id, manufacturer_party_id, ref, description, item_type, tracking, unit_gtin, size, product_line, uom, source_system, source_id, import_batch_id)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
       [ctx.tenantId, ref.parties.get(v.manufacturer.toLowerCase()), v.ref, v.description, v.item_type, v.tracking, v.unit_gtin || null, v.size || null, v.product_line || null, (v.uom || 'EA').toUpperCase(), sourceSystem, v.source_id, batchId]);
-    const item = { id: res.rows[0].id, ref: v.ref, tracking: v.tracking, uom: (v.uom || 'EA').toUpperCase(), source_id: v.source_id };
-    ref.items.set(v.ref.toLowerCase(), item);
+    const item = { id: res.rows[0].id, manufacturer_party_id: ref.parties.get(v.manufacturer.toLowerCase()), ref: v.ref, tracking: v.tracking, uom: (v.uom || 'EA').toUpperCase(), source_id: v.source_id };
+    ref.items.set(`${item.manufacturer_party_id}|${v.ref.toLowerCase()}`, item);
     return res.rows[0].id;
   }
   if (kind === 'packages') {
-    const item = ref.items.get(v.item_ref.toLowerCase());
+    const item = (r as any).item;
     const res = await db.query(`insert into packages(tenant_id, catalog_item_id, gtin, level, units_per_package, uom, source_system, source_id, import_batch_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
       [ctx.tenantId, item.id, v.package_gtin, v.level, Number(v.units_per_package), v.uom.toUpperCase(), sourceSystem, v.source_id, batchId]);
     return res.rows[0].id;
   }
-  const item = ref.items.get(v.item_ref.toLowerCase());
+  const item = (r as any).item;
   const loc = ref.locations.get(v.location_code.toLowerCase());
   const owner = ref.parties.get(v.owner.toLowerCase());
   const serial = item.tracking === 'serial';

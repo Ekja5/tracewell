@@ -27,8 +27,10 @@ export async function addCountLine(db: Db, ctx: Ctx, id: string, input: { ref: s
   requirePerm(ctx, 'count.perform');
   const s = await one(db, `select * from count_sessions where id=$1`, [id]);
   if (s.status !== 'open') throw new AppError(409, 'closed', 'Count is no longer open');
-  const item = await maybe(db, `select * from catalog_items where lower(ref)=lower($1)`, [input.ref]);
-  if (!item) throw new AppError(400, 'unknown_ref', `Unknown ref ${input.ref}`);
+  const items = await rows(db, `select ci.*, p.name manufacturer from catalog_items ci left join parties p on p.id=ci.manufacturer_party_id where lower(ci.ref)=lower($1) and ($2::text is null or lower(p.name)=lower($2))`, [input.ref, (input as any).manufacturer ?? null]);
+  if (!items.length) throw new AppError(400, 'unknown_ref', `Unknown ref ${input.ref}`);
+  if (items.length > 1) throw new AppError(409, 'ambiguous_ref', `${input.ref} is used by ${items.map((i) => i.manufacturer).join(' and ')}; choose the manufacturer`, { manufacturers: items.map((i) => i.manufacturer) });
+  const item = items[0];
   const st = item.tracking === 'serial' ? await maybe(db, `select * from stock_items where catalog_item_id=$1 and serial_number=$2`, [item.id, input.serial])
     : await maybe(db, `select * from stock_items where catalog_item_id=$1 and lot_number=$2 and serial_number is null`, [item.id, input.lot]);
   if (!st) {

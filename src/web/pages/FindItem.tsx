@@ -20,10 +20,10 @@ export function FindItem() {
   const [err, setErr] = useState<string | null>(null);
   const mine = useData<any[]>(me.user.role === 'rep' ? '/api/cases?mine=1' : '/api/cases');
   const open = (mine.data ?? []).filter((c) => c.status === 'scheduled');
-  const search = async (e?: React.FormEvent) => {
+  const search = async (e?: React.FormEvent, catalogItemId?: string) => {
     e?.preventDefault(); setErr(null);
     setSp({ q, ...(caseId ? { case: caseId } : {}) });
-    try { setRes(await api(`/api/availability?q=${encodeURIComponent(q)}${caseId ? `&caseId=${caseId}` : ''}`)); } catch (x: any) { setErr(x.message); }
+    try { setRes(await api(`/api/availability?q=${encodeURIComponent(q)}${caseId ? `&caseId=${caseId}` : ''}${catalogItemId ? `&catalogItemId=${catalogItemId}` : ''}`)); } catch (x: any) { setErr(x.message); }
   };
   return (
     <div>
@@ -35,6 +35,11 @@ export function FindItem() {
       </form>
       <Err e={err} />
       {res?.mode === 'none' && <p className="alert">{res.message}</p>}
+      {res?.mode === 'ambiguous' && (
+        <section className="card" role="group" aria-label="Choose the manufacturer">
+          <p><strong>{res.message}</strong> The same catalog number is used by more than one manufacturer; these are different products.</p>
+          <div className="ask-choices">{res.choices.map((c: any) => <button key={c.catalogItemId} className="secondary" onClick={() => search(undefined, c.catalogItemId)}>{c.ref} · {c.manufacturer} · {c.description}</button>)}</div>
+        </section>)}
       {res?.mode === 'case' && (
         <div className="card">
           <p><strong>{res.item.ref}</strong> {res.item.description} for <strong>{res.case.caseRef}</strong>: needed at {res.case.facility} by <strong>{fmtTime(res.requiredBy, res.case.timezone)}</strong>. {res.eligible.length} eligible, {res.excluded.length} excluded.</p>

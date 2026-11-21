@@ -49,3 +49,17 @@ Fixture: 48.8k stock units, 53.8k movements, 600 cases in the 72 h window, 5,000
 - Multi-user concurrent load over HTTP and multi-instance deployment.
 - Screen-reader accessibility.
 - Timed usability sessions with real users.
+
+## Third pass: Ask operations assistant (2026-11-21)
+
+`npm run test:all`: typecheck clean; **73 integration tests** (54 earlier + 12 assistant evaluation + 7 provider adapter)
+and **19 browser tests** (15 earlier + 4 assistant: desktop 1440 px and iPhone 13 profile) pass.
+
+| Suite | Mode | Model calls |
+|---|---|---|
+| `tests/integration/assistant-eval.test.ts` (E0-E8, S1, S2) | demo | none |
+| `tests/e2e/zz-assistant.spec.ts` | demo | none |
+| `tests/integration/assistant-provider.test.ts` | provider adapter against a local mock Messages API | none real; scripted mock responses |
+| `npm run eval:assistant:provider` | provider | **not run**: no API key in the build environment |
+
+Evaluation results: `docs/eval/assistant-eval-demo.json`. Details: [assistant.md](assistant.md).

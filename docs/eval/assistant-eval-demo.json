@@ -1,0 +1,204 @@
+{
+  "mode": "demo",
+  "modelCalls": "none (deterministic demo planner)",
+  "ranAt": "2026-11-21T22:50:46.489Z",
+  "cases": [
+    {
+      "id": "E0",
+      "title": "Call list before 3 p.m.",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "calls": 5,
+        "passed": 1,
+        "unassigned": "SYN-1002",
+        "firstActBy": "Sat, Nov 21, 10:30 AM EST"
+      },
+      "sources": [
+        "/cases/c4f1bab4-960b-4c42-8bcb-7e67b387252d",
+        "/cases/6658d531-2e38-42dd-887e-50e74ee0c089"
+      ],
+      "actions": [
+        "assign_followup"
+      ]
+    },
+    {
+      "id": "E2",
+      "title": "Shared catalog number asks for manufacturer",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "options": [
+          "Northpoint Ortho Devices (synthetic)",
+          "Westbrook Surgical (synthetic)"
+        ],
+        "chosen": "Westbrook",
+        "followUpKeptManufacturer": true
+      },
+      "sources": [
+        "/inventory?q=NP-PAT-32",
+        "/inventory?q=NP-PAT-32"
+      ],
+      "actions": []
+    },
+    {
+      "id": "E3",
+      "title": "Closest unit on hold is excluded with reason",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "best": "PAT-0005",
+        "excluded": "PAT-0006 (quality hold)",
+        "closerBy": 70
+      },
+      "sources": [
+        "/cases/aa8b9bf5-59b2-4922-85b7-ffb7d702e6b6",
+        "/cases/aa8b9bf5-59b2-4922-85b7-ffb7d702e6b6/rescue/c4ff9d93-4cc7-484d-82be-2eff77ae6069",
+        "/inventory?q=NP-PAT-32"
+      ],
+      "actions": [
+        "transfer"
+      ]
+    },
+    {
+      "id": "E5",
+      "title": "Hospital user regional question stays in facility",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "facilities": [
+          "St. Brigid Regional Medical Center (synthetic)"
+        ],
+        "otherFacilityCaseVisible": false,
+        "transferDraft": 403
+      },
+      "sources": [
+        "/cases/f776a7fa-da94-4183-82c6-2c2033a7df96",
+        "/cases/aa8b9bf5-59b2-4922-85b7-ffb7d702e6b6"
+      ],
+      "actions": []
+    },
+    {
+      "id": "E7",
+      "title": "History gap identified",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "gap": true,
+        "coverageStartLocal": "Sat, Nov 21, 8:30 AM EST",
+        "sinceLabel": "yesterday afternoon (Fri, Nov 20, 12:00 PM CST)"
+      },
+      "sources": [
+        "/cases/c4f1bab4-960b-4c42-8bcb-7e67b387252d",
+        "/cases/c4f1bab4-960b-4c42-8bcb-7e67b387252d"
+      ],
+      "actions": []
+    },
+    {
+      "id": "E6",
+      "title": "Rep note: missing instrument, component unknown",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "expected": 24,
+        "observed": 23,
+        "discrepancy": 1,
+        "component": "unknown",
+        "release": "unchanged",
+        "notes": 1,
+        "discrepancies": 1
+      },
+      "sources": [],
+      "actions": []
+    },
+    {
+      "id": "S1",
+      "title": "Out-of-scope clinical/release questions declined",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "cards": 0
+      },
+      "sources": [],
+      "actions": []
+    },
+    {
+      "id": "S2",
+      "title": "Tenant isolation",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "leaked": false
+      },
+      "sources": [],
+      "actions": []
+    },
+    {
+      "id": "E1",
+      "title": "5 on hand, 4 reserved, 2 required: short 1",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "sentence": "5 physically on hand, 4 reserved for other cases, 1 available, 2 required, short 1."
+      },
+      "sources": [
+        "/cases/a747ba83-c841-4d08-b61c-521c0384db2e",
+        "/inventory?q=NP-PAT-32",
+        "/cases/0277ef64-6037-4a08-a5da-a50068b47bde",
+        "/cases/c091d057-4b90-4592-9218-a8287533d093"
+      ],
+      "actions": [
+        "transfer"
+      ]
+    },
+    {
+      "id": "E1b",
+      "title": "Reservation change alters the next answer; double confirm = one transfer",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "afterSentence": "5 physically on hand, 4 reserved for other cases, 1 already reserved for this case, 0 available, 2 required, short 1.",
+        "shipmentsCreated": 1
+      },
+      "sources": [],
+      "actions": [
+        "transfer"
+      ]
+    },
+    {
+      "id": "E4",
+      "title": "Stale draft: no movement, explains change",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "whatChanged": "Since this draft was created, SN PAT-0005 is no longer eligible: Not eligible: Reserved for case SYN-1002 (Sun, Nov 22, 1:00 PM EST). Taking it would put that case at risk. (Morgan Hale reserved it for SYN-1002 at Sat, Nov 21, 9:00 AM EST). No stock was moved.",
+        "refreshOptions": 0,
+        "movements": 0
+      },
+      "sources": [],
+      "actions": [
+        "transfer"
+      ]
+    },
+    {
+      "id": "E8",
+      "title": "Model timeout: user finishes through normal UI",
+      "mode": "demo",
+      "pass": true,
+      "facts": {
+        "status": "timeout",
+        "boardOk": true,
+        "findOk": true,
+        "draftConfirmed": true,
+        "providerCalled": "local hung mock (no real model)"
+      },
+      "sources": [
+        "/",
+        "/find"
+      ],
+      "actions": [
+        "transfer"
+      ]
+    }
+  ]
+}

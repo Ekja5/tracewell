@@ -1,10 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api, ApiError, post, ROLE_LABEL, fmtTime } from './lib/api';
-import { clearForUser, isForcedOffline, isOnline, listQueue, setForcedOffline, syncQueue, requestPersistence } from './lib/offline';
+import { clearForUser, isForcedOffline, isOnline, listQueue, setForcedOffline, syncQueue, requestPersistence, listNotes as listLocalNotes, syncNotes } from './lib/offline';
 import { Login } from './pages/Login';
 import { Board } from './pages/Board';
 import { CaseDetail } from './pages/CaseDetail';
+import { QuickNote } from './pages/QuickNote';
 import { Rescue } from './pages/Rescue';
 import { Shipments, ShipmentDetail, PickQueue } from './pages/Shipments';
 import { TrayVerify } from './pages/TrayVerify';
@@ -58,7 +59,10 @@ function SyncBar({ me }: { me: Me }) {
   const [review, setReview] = useState(0);
   const [last, setLast] = useState<string | null>(null);
   const refresh = useCallback(async () => {
-    try { const q = await listQueue(me.user.id); setPending(q.filter((e) => e.state === 'pending').length); setReview(q.filter((e) => e.state === 'needs_review').length); } catch { /* idb unavailable */ }
+    try {
+      const q = await listQueue(me.user.id); const n = await listLocalNotes(me.user.id);
+      setPending(q.filter((e) => e.state === 'pending').length + n.filter((x) => x.state === 'pending').length); setReview(q.filter((e) => e.state === 'needs_review').length);
+    } catch { /* idb unavailable */ }
   }, [me.user.id]);
   useEffect(() => {
     refresh();
@@ -69,6 +73,7 @@ function SyncBar({ me }: { me: Me }) {
   useEffect(() => {
     if (!online) return;
     syncQueue(me.user.id).then((r) => { if (r.sent) { setLast(new Date().toISOString()); window.dispatchEvent(new Event('tw-synced')); } refresh(); }).catch(() => {});
+    syncNotes(me.user.id).then((n) => { if (n) { setLast(new Date().toISOString()); refresh(); } }).catch(() => {});
   }, [online, pending]);
   if (me.user.role !== 'rep' && pending === 0 && online) return null;
   return (
@@ -143,6 +148,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/cases/:id" element={<CaseDetail />} />
             <Route path="/cases/:id/rescue/:reqId" element={<Rescue />} />
             <Route path="/cases/:id/closeout" element={<Closeout />} />
+            <Route path="/cases/:id/handoff" element={<QuickNote />} />
             <Route path="/cases/:id/finance" element={<CaseFinance />} />
             <Route path="/pick" element={<PickQueue />} />
             <Route path="/shipments" element={<Shipments />} />

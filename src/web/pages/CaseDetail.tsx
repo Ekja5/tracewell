@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useData, useMe, Status, Err } from '../App';
 import { fmtTime, post } from '../lib/api';
 import { IssueControls, IssueHistory } from '../components/IssueControls';
+import { AskOpsButton } from '../components/AskOps';
 
 export function CaseDetail() {
   const { id } = useParams();
@@ -20,6 +21,8 @@ export function CaseDetail() {
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h1>{c.case_ref} <Status s={r.status} /></h1>
         <div className="row">
+          <AskOpsButton caseId={c.id} facilityId={c.facility_id} label="Ask about this case" />
+          {can('closeout.record') && c.status === 'scheduled' && <Link className="btn" to={`/cases/${c.id}/handoff`}>Quick note</Link>}
           {can('closeout.record') && c.status === 'scheduled' && <Link className="btn" to={`/cases/${c.id}/closeout`}>Close case</Link>}
           {can('finance.manage') && ['completed', 'closed'].includes(c.status) && <Link className="btn" to={`/cases/${c.id}/finance`}>Finance</Link>}
         </div>

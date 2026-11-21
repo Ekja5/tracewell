@@ -183,13 +183,21 @@ export async function reserveAndTransfer(db: Db, ctx: Ctx, caseId: string, requi
  * the full rescue ranking (cutoff, travel, evidence, cost). Without one, it lists every unit of that
  * exact item with usable quantity, custodian, physical-evidence freshness and why it is or is not usable.
  */
-export async function exactItemAvailability(db: Db, ctx: Ctx, input: { q: string; caseId?: string | null }) {
+export async function exactItemAvailability(db: Db, ctx: Ctx, input: { q: string; caseId?: string | null; catalogItemId?: string | null }) {
   requirePerm(ctx, 'rescue.search');
   const q = String(input.q ?? '').trim();
-  if (!q) throw new AppError(400, 'query_required', 'Enter an exact catalog number or GTIN');
-  const item = await maybe(db, `select ci.* from catalog_items ci where lower(ci.ref)=lower($1) or ci.unit_gtin=$1
-     union select ci.* from packages p join catalog_items ci on ci.id=p.catalog_item_id where p.gtin=$1 limit 1`, [q]);
-  if (!item) return { mode: 'none', message: `No catalog item matches "${q}" exactly. Search by exact catalog number or GTIN; substitutes are never suggested.` };
+  if (!q && !input.catalogItemId) throw new AppError(400, 'query_required', 'Enter an exact catalog number or GTIN');
+  const matches = await rows(db, `select x.*, p.name manufacturer, x.pkg_units from (
+       select ci.*, null::int pkg_units from catalog_items ci where ($2::uuid is not null and ci.id=$2) or ($2::uuid is null and (lower(ci.ref)=lower($1) or ci.unit_gtin=$1))
+       union select ci.*, pk.units_per_package from packages pk join catalog_items ci on ci.id=pk.catalog_item_id where $2::uuid is null and pk.gtin=$1) x
+     left join parties p on p.id=x.manufacturer_party_id`, [q, input.catalogItemId ?? null]);
+  if (!matches.length) return { mode: 'none', message: `No catalog item matches "${q}" exactly. Search by exact catalog number or GTIN; substitutes are never suggested.` };
+  if (matches.length > 1) {
+    // Same catalog number from different manufacturers: never pick one silently.
+    return { mode: 'ambiguous', message: `"${q}" matches ${matches.length} catalog items. Choose the manufacturer.`,
+      choices: matches.map((m) => ({ catalogItemId: m.id, ref: m.ref, manufacturer: m.manufacturer, description: m.description, unitGtin: m.unit_gtin })) };
+  }
+  const item = matches[0];
   if (input.caseId) {
     const c = await getVisibleCase(db, ctx, input.caseId);
     const req = await maybe(db, `select id from case_requirements where case_id=$1 and catalog_item_id=$2 and active`, [c.id, item.id]);

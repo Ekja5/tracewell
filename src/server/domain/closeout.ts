@@ -61,8 +61,13 @@ export async function recordUsage(db: Db, ctx: Ctx, input: UsageInput) {
     }
   } else if (input.manual) {
     scanFormat = 'MANUAL';
-    catalog = await maybe(db, `select * from catalog_items where lower(ref)=lower($1)`, [input.manual.ref]);
-    if (!catalog) review.push(`Catalog ref ${input.manual.ref} not found`);
+    const cands = await rows(db, `select ci.*, p.name manufacturer from catalog_items ci left join parties p on p.id=ci.manufacturer_party_id where lower(ci.ref)=lower($1) and ($2::uuid is null or ci.id=$2)`, [input.manual.ref, (input.manual as any).catalogItemId ?? null]);
+    // Prefer the item this case actually requires when a catalog number is shared by manufacturers.
+    const onCase = cands.length > 1 ? (await rows(db, `select catalog_item_id from case_requirements where case_id=$1`, [c.id])).map((x) => x.catalog_item_id) : [];
+    const narrowed = cands.length > 1 ? cands.filter((x) => onCase.includes(x.id)) : cands;
+    if (!cands.length) review.push(`Catalog ref ${input.manual.ref} not found`);
+    else if (narrowed.length !== 1) review.push(`Catalog ref ${input.manual.ref} is used by ${cands.length} manufacturers (${cands.map((x) => x.manufacturer).join(', ')}); review must pick one`);
+    else catalog = narrowed[0];
     lot = input.manual.lot?.trim() || undefined; serial = input.manual.serial?.trim() || undefined; labelExpiry = input.manual.expiry || undefined;
   } else throw new AppError(400, 'no_identity', 'Provide a scan or a manual entry');
 

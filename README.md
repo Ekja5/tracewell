@@ -57,6 +57,8 @@ In development the login page shows one-click buttons for every seeded account. 
 | `npm run test:e2e` | Browser end-to-end tests (Playwright; desktop + iPhone 13 profile, real offline mode) |
 | `npm run test:all` | Typecheck + integration + e2e, reports in `test-results/` |
 | `npm run typecheck` | TypeScript check |
+| `npm run eval:assistant` | Assistant evaluation in demo mode (no model calls); writes `docs/eval/assistant-eval-demo.json` |
+| `npm run eval:assistant:provider` | Same evaluation with the real model (needs `ANTHROPIC_API_KEY`; paid calls) |
 | `DEMO_TIME=16:00 npm start -- --reset` | Start the demo at the 4 p.m. planning meeting (see [demo script](docs/demo-script.md)) |
 | `npx tsx scripts/exercise.ts` | Re-run the six-workflow exercise against an isolated DB; writes observations (baseline vs after in `docs/exercise/`) |
 | `npx tsx src/server/seed/seed-alt.ts` | Load the independent alternate dataset (two other tenants, different zones/cutoffs) into `DATABASE_URL` |
@@ -64,6 +66,8 @@ In development the login page shows one-click buttons for every seeded account. 
 
 ## Documentation
 
+- [Ask operations assistant, quick notes, modes and evaluation](docs/assistant.md)
+- [Three-minute assistant demo script](docs/assistant-demo-script.md)
 - [Second pass: findings, changes, before/after, verification](docs/second-pass.md)
 - [Implementation plan and checkpoint](PLAN.md)
 - [Ten-minute demo script (4 p.m. scenario)](docs/demo-script.md)
