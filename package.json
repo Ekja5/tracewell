@@ -1,0 +1,48 @@
+{
+  "name": "tracewell-case-logistics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Orthopedic surgical inventory and case logistics (pilot). Synthetic data only.",
+  "type": "module",
+  "scripts": {
+    "db:local": "bash scripts/db-local.sh",
+    "migrate": "tsx src/server/migrate.ts",
+    "seed": "tsx src/server/seed/seed.ts",
+    "build": "vite build",
+    "server": "tsx src/server/index.ts",
+    "worker": "tsx src/worker/index.ts",
+    "dev": "bash scripts/start.sh",
+    "start": "bash scripts/start.sh",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test --trace off",
+    "test:all": "bash scripts/test-all.sh"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/static": "^8.3.0",
+    "bcryptjs": "^3.0.3",
+    "csv-parse": "^7.0.3",
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^10.0.7",
+    "gs1-barcode-parser-mod": "^1.2.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.6",
+    "vitest": "^3.2.7"
+  }
+}

@@ -1,0 +1,9 @@
+# Optional: use this if you prefer Docker for PostgreSQL. scripts/db-local.sh uses local binaries otherwise.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_local_only
+    ports: ["5433:5432"]
+    volumes: ["./db/docker-init.sql:/docker-entrypoint-initdb.d/init.sql:ro"]
