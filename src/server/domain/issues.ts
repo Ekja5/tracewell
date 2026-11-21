@@ -43,7 +43,7 @@ async function closeAlerts(db: Db, issueId: string, reason: string) {
 }
 
 export function explain(issue: { message: string; deadlineNote?: string | null }, ownerName: string | null, actBy: string | null, tz: string) {
-  const dl = actBy ? ` Act by ${fmtLocal(actBy, tz)}.` : '';
+  const dl = actBy && !/must leave by/.test(issue.message) ? ` Act by ${fmtLocal(actBy, tz)}.` : '';
   return `${issue.message}${issue.deadlineNote ? ' ' + issue.deadlineNote : ''}${dl} ${ownerName ? `${ownerName} owns the follow-up.` : 'No owner assigned.'}`.replace(/\s+/g, ' ').trim();
 }
 
@@ -183,7 +183,7 @@ export async function handoff(db: Db, ctx: Ctx, hours = 12) {
   const fac = isFacilityUser(ctx) ? ctx.facilityId : null;
   const terr = ctx.role === 'rep' ? ctx.territoryId : null;
   const base = `from case_issues i join cases c on c.id=i.case_id join facilities f on f.id=c.facility_id left join users u on u.id=i.owner_user_id
-     where ($2::uuid is null or c.facility_id=$2) and ($3::uuid is null or f.territory_id=$3 or c.rep_user_id=$4)`;
+     where $1::timestamptz is not null and ($2::uuid is null or c.facility_id=$2) and ($3::uuid is null or f.territory_id=$3 or c.rep_user_id=$4)`;
   const cols = `i.*, c.case_ref, c.scheduled_start, f.name facility, f.timezone, u.display_name owner_name,
      (select json_agg(json_build_object('kind', e.kind, 'at', e.at, 'detail', e.detail, 'actor', eu.display_name) order by e.at desc, e.id desc) from issue_events e left join users eu on eu.id=e.actor_user_id where e.issue_id=i.id) history`;
   const open = await rows(db, `select ${cols} ${base} and i.status <> 'resolved' order by i.escalation_level desc, i.act_by nulls last`, [since, fac, terr, ctx.userId]);

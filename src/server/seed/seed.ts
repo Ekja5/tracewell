@@ -75,9 +75,9 @@ export async function seed(opts: { quiet?: boolean } = {}) {
     ids.WH = (await ins(`insert into facilities(tenant_id,code,name,kind,timezone,territory_id,party_id) values ($1,'WH','Lakeshore Central Warehouse','warehouse',$2,$3,$4) returning id`, [T, CHI, ids.terrN, ids.dist])).id;
     ids.SBR = (await ins(`insert into facilities(tenant_id,code,name,kind,timezone,territory_id,party_id) values ($1,'SBR','St. Brigid Regional Medical Center (synthetic)','hospital',$2,$3,$4) returning id`, [T, CHI, ids.terrN, ids.pSBR])).id;
     ids.PVS = (await ins(`insert into facilities(tenant_id,code,name,kind,timezone,territory_id,party_id) values ($1,'PVS','Prairie Valley Surgical Hospital (synthetic)','hospital',$2,$3,$4) returning id`, [T, IND, ids.terrE, ids.pPVS])).id;
-    await db.query(`insert into facility_policies(tenant_id,facility_id,version,tray_due_hours_before,implant_due_hours_before,requires_release_decision,required_evidence,receiving_notes,effective_from,approved_by) values
-      ($1,$2,3,12,2,true,'{hospital_processing_record_ref}','Loaner trays due by 19:30 the evening before; SPD records release after decontamination and processing per hospital procedure.','2026-01-01','SBR Perioperative Services (synthetic)'),
-      ($1,$3,1,24,12,true,'{hospital_processing_record_ref,loaner_count_sheet_ref}','Loaner trays and implants must arrive one full day before surgery; hospital count sheet reference required.','2026-01-01','PVS Materials Management (synthetic)')`, [T, ids.SBR, ids.PVS]);
+    await db.query(`insert into facility_policies(tenant_id,facility_id,version,tray_due_hours_before,implant_due_hours_before,requires_release_decision,required_evidence,receiving_notes,effective_from,approved_by,receiving_open,receiving_close) values
+      ($1,$2,3,12,2,true,'{hospital_processing_record_ref}','Loaner trays due by 19:30 the evening before; SPD records release after decontamination and processing per hospital procedure.','2026-01-01','SBR Perioperative Services (synthetic)','05:00','20:00'),
+      ($1,$3,1,24,12,true,'{hospital_processing_record_ref,loaner_count_sheet_ref}','Loaner trays and implants must arrive one full day before surgery; hospital count sheet reference required. Receiving desk 07:00-15:00.','2026-01-01','PVS Materials Management (synthetic)','07:00','15:00')`, [T, ids.SBR, ids.PVS]);
 
     const users: [string, string, Role, string | null, string | null][] = [
       ['ops@lakeshore.example', 'Morgan Hale', 'ops_manager', null, null],

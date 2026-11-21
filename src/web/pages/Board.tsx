@@ -55,7 +55,7 @@ export function Board() {
               </li>))}
           </ol>
           {c.staleEvidence?.length > 0 && <p className="small evidence-stale">Evidence to re-check: {c.staleEvidence.map((s: any) => `${s.label} at ${s.location}: ${s.kind}${s.ageHours != null ? `, ${Math.round(s.ageHours / 24)} days ago` : ''}`).join('; ')}.</p>}
-          <p className="small muted">Last physical verification: {c.lastVerification ? `${c.lastVerification.kind}, ${c.lastVerification.what}, ${fmtTime(c.lastVerification.at, c.timezone)}` : 'none on record'}. {c.hoursNote}.</p>
+          <p className="small muted">Last physical verification: {c.lastVerification ? `${c.lastVerification.kind}, ${c.lastVerification.what}, ${fmtTime(c.lastVerification.at, c.timezone)}` : 'none on record'}.{c.hoursNote ? ` ${c.hoursNote}.` : ''}</p>
         </section>))}
       {data && !cases.length && <p className="muted">No cases in this window visible to you.</p>}
     </div>

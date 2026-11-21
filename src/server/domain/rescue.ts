@@ -216,5 +216,6 @@ export async function exactItemAvailability(db: Db, ctx: Ctx, input: { q: string
       custodian: b.holder_name ?? b.loc_facility_name ?? 'Distributor warehouse', owner: b.owner_name, onHand: b.on_hand, reserved: b.reserved, usable, whyNot: why,
       evidence: evidenceTier(ver?.kind ?? null, ver?.at ?? null, t.getTime()), lastVerifiedAt: ver?.at ?? null });
   }
+  out.sort((a, b) => b.usable - a.usable || String(a.location).localeCompare(String(b.location)));
   return { mode: 'stock', item, rows: out, usableTotal: out.reduce((a, r) => a + r.usable, 0), note: 'Pick one of your cases to see arrival estimates against that facility\'s cutoff.' };
 }

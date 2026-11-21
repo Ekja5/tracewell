@@ -304,6 +304,7 @@ export async function financeLines(db: Db, ctx: Ctx) {
       or bp.status in ('disputed','po_partial','erp_received_simulated','queued_to_erp'))
     order by ch.created_at`);
   const out: any[] = [];
+  const heldCases = new Set(lines.filter((l) => l.status === 'review' || l.status === 'exception').map((l) => l.case_id));
   for (const l of lines) {
     let category = ''; let missing = '';
     if (l.status === 'exception') {
@@ -312,6 +313,7 @@ export async function financeLines(db: Db, ctx: Ctx) {
         : !l.rule_id ? `A rule in ${l.contract_name} v${l.contract_version} for disposition "${l.disposition.replace('_', ' ')}"`
         : `A contract price for ${l.ref} in ${l.contract_name} v${l.contract_version}`;
     } else if (l.status === 'review') { category = 'needs decision'; missing = `Chargeable or no-charge decision for ${l.disposition.replace('_', ' ')} (${l.rule_text ?? 'contract rule'})`; }
+    else if (!l.packet_id && heldCases.has(l.case_id)) { category = 'waiting on held line'; missing = `Resolution of the held line(s) on ${l.case_ref}; the packet is prepared once every line is priced`; }
     else if (!l.packet_id) { category = 'not on a packet'; missing = 'Include in a (supplemental) billing packet'; }
     else if (l.packet_status === 'disputed') { category = 'PO disputed'; missing = 'A corrected PO, or an approved credit'; }
     else if (l.packet_status === 'po_partial') { category = 'awaiting PO'; missing = `PO coverage for ${l.ref}`; }
@@ -329,7 +331,7 @@ export async function financeLines(db: Db, ctx: Ctx) {
     if (l.category === 'awaiting PO' && l.outstandingCents === 0) l.drop = true;
   }
   const finalLines = out.filter((l) => !l.drop);
-  const order: Record<string, number> = { 'cannot price': 0, 'needs decision': 1, 'PO disputed': 2, 'not on a packet': 3, 'awaiting PO': 4 };
+  const order: Record<string, number> = { 'cannot price': 0, 'needs decision': 1, 'PO disputed': 2, 'not on a packet': 3, 'waiting on held line': 4, 'awaiting PO': 5 };
   finalLines.sort((a, b) => order[a.category] - order[b.category] || b.ageDays - a.ageDays);
   const finance = await rows(db, `select id, display_name from users where role in ('finance') and active order by display_name`);
   return { lines: finalLines, owners: finance, totals: {

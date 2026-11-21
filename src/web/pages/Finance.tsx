@@ -56,7 +56,7 @@ export function FinanceQueue() {
   const { data, error, reload } = useData<any>('/api/finance/lines');
   const [cat, setCat] = useState('all');
   const lines = (data?.lines ?? []).filter((l: any) => cat === 'all' || l.category === cat);
-  const cats = ['cannot price', 'needs decision', 'PO disputed', 'not on a packet', 'awaiting PO'];
+  const cats = ['cannot price', 'needs decision', 'PO disputed', 'not on a packet', 'waiting on held line', 'awaiting PO'];
   return (
     <div>
       <h1>Billing line queue</h1>
@@ -67,7 +67,7 @@ export function FinanceQueue() {
       </div>
       {data && <p className="small">Held lines with unknown amount: <strong>{data.totals.heldUnpricedLines}</strong> · {' '}
         <Drill label="Known amount on held lines" cents={data.totals.knownHeldCents} rows={data.lines.filter((l: any) => l.category !== 'awaiting PO' && l.amountCents != null)} render={(l) => <>{l.caseRef} {l.ref} {money(l.amountCents)} ({l.category})</>} /> · {' '}
-        <Drill label="Outstanding on sent packets" cents={data.totals.outstandingCents} rows={data.lines.filter((l: any) => l.outstandingCents)} render={(l) => <>{l.caseRef} {l.ref} {money(l.outstandingCents)}</>} /></p>}
+        <Drill label="Priced, not yet covered by a PO" cents={data.totals.outstandingCents} rows={data.lines.filter((l: any) => l.outstandingCents)} render={(l) => <>{l.caseRef} {l.ref} {money(l.outstandingCents)}</>} /></p>}
       <Err e={error} />
       {lines.map((l: any) => <QueueLine key={l.chargeId} l={l} owners={data.owners} onDone={reload} />)}
       {data && !lines.length && <p className="ok">Nothing held in this category.</p>}
