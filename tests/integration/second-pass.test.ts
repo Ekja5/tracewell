@@ -44,7 +44,7 @@ describe('A. 4 p.m. move: owners, deadlines and alerts follow the case', () => {
     expect(alerts[0].repeat_count).toBeGreaterThan(1);
     expect(alerts[0].message).toMatch(/earlier|deadline/);
     // Implant deadline now falls outside St. Brigid receiving hours, so it moves back to the 8 PM close.
-    const implant = after.blockers.find((b: any) => b.code === 'uncovered');
+    const implant = after.blockers.find((b: any) => b.code === 'uncovered')!;
     expect(implant.explanation).toMatch(/receiving closes at 8:00 PM/);
     expect(implant.explanation).toMatch(/Riley Novak owns the follow-up/);
   });

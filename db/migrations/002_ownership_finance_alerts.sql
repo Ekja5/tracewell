@@ -1,5 +1,12 @@
 -- Second pass: issue ownership, grouped alerts, usage corrections, sync quarantine, finance history,
 -- partial POs, facility receiving hours. Additive only: existing first-build data is preserved.
+--
+-- Backfills below run as the (non-superuser) table owner. Because tables use FORCE ROW LEVEL SECURITY,
+-- an owner's UPDATE/SELECT without app.tenant_id sees zero rows, so RLS is lifted for this migration's
+-- transaction only and restored at the end (tested in tests/integration/migration.test.ts).
+ALTER TABLE facility_policies NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE notifications NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE charges NO FORCE ROW LEVEL SECURITY;
 
 -- Facility receiving hours (facility-local wall clock). NULL = always open.
 ALTER TABLE facility_policies ADD COLUMN receiving_open time, ADD COLUMN receiving_close time;
@@ -119,3 +126,7 @@ END $$;
 -- Packets: one open draft per case/type (duplicate prevention), supplemental packets allowed after sending.
 DROP INDEX billing_packets_one_active;
 CREATE UNIQUE INDEX billing_packets_one_draft ON billing_packets(tenant_id, case_id, packet_type) WHERE status = 'draft';
+
+ALTER TABLE facility_policies FORCE ROW LEVEL SECURITY;
+ALTER TABLE notifications FORCE ROW LEVEL SECURITY;
+ALTER TABLE charges FORCE ROW LEVEL SECURITY;
