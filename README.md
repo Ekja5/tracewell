@@ -57,11 +57,17 @@ In development the login page shows one-click buttons for every seeded account. 
 | `npm run test:e2e` | Browser end-to-end tests (Playwright; desktop + iPhone 13 profile, real offline mode) |
 | `npm run test:all` | Typecheck + integration + e2e, reports in `test-results/` |
 | `npm run typecheck` | TypeScript check |
+| `DEMO_TIME=16:00 npm start -- --reset` | Start the demo at the 4 p.m. planning meeting (see [demo script](docs/demo-script.md)) |
+| `npx tsx scripts/exercise.ts` | Re-run the six-workflow exercise against an isolated DB; writes observations (baseline vs after in `docs/exercise/`) |
+| `npx tsx src/server/seed/seed-alt.ts` | Load the independent alternate dataset (two other tenants, different zones/cutoffs) into `DATABASE_URL` |
+| `npx tsx scripts/load-fixture.ts` | Build the isolated load fixture (`tracewell_load`) and print timings for board, exact-item search and recall trace |
 
 ## Documentation
 
+- [Second pass: findings, changes, before/after, verification](docs/second-pass.md)
 - [Implementation plan and checkpoint](PLAN.md)
-- [Ten-minute demo script](docs/demo-script.md)
+- [Ten-minute demo script (4 p.m. scenario)](docs/demo-script.md)
+- [Performance before/after](docs/perf/after.md)
 - [Architecture and data model](docs/architecture.md)
 - [Test report](docs/test-report.md)
 - [Integrations, field ownership and simulated adapters](docs/integrations.md)

@@ -1,31 +1,20 @@
-# Known limitations
+# Known limitations (ordered by impact on a first customer pilot)
 
-**Scope and data**
-- Pilot scope is one distributor, one product line (synthetic Meridian Knee System), two hospitals, one warehouse and two reps. A second tenant exists only to prove isolation.
-- Travel times and courier costs are seeded estimates. There is no routing or traffic service.
-- The application clock is pinned by the seed for a deterministic demo date (`DEMO_CLOCK`). For real use, run without demo seeding and set the clock offset to 0.
-
-**Scanning**
-- GS1 parsing covers the AIs common on implant labels (00, 01, 02, 10, 11–17, 20, 21, 22, 240, 241, 250, 30, 37, 400, 7003, 8020). Other AIs are rejected and sent to review.
-- HIBCC and ISBT 128 are detected but **not parsed**. They go to reviewed manual entry.
-- Camera scanning depends on the browser `BarcodeDetector` API, which iOS Safari lacks. No JavaScript decoder library is bundled.
-- Keyboard-wedge scanners must transmit GS (ASCII 29) or Ctrl+], or use the `<GS>` / `{GS}` placeholders. Without a separator, a variable-length lot followed by another AI is ambiguous and is flagged.
-
-**Workflow simplifications**
-- Ownership transfer (for example consignment → distributor title) is not modeled as a separate event. Owner is fixed per balance.
-- Hospital-owned consignment is excluded from rescue (owner approval workflow not built).
-- Tray contents are verified by count against the manifest. Individual instrument serials inside trays are not tracked.
-- The replacement instrument and its tray are reconciled by re-verification. The loose instrument stays a separate ledger unit at the facility.
-- Instrument return after a case is recorded as status only. Return shipments are created by ops.
-- Rejected deliveries remain in in-transit custody. The return leg is a manual shipment.
-- A "customer acceptance" on a packet is a reference entered by finance. There is no customer portal.
-- Contract maintenance UI is not built. Contracts and prices come from the seed, or would be entered directly or imported.
-- Preference card editing UI is minimal (approve a draft version). Card authoring is seeded.
-- The scorecard's "minutes to locate" depends on audit events from the rescue screen. Searches done outside the app are not measured.
-
-**Platform**
-- Login lockout and rate limits are in-memory (single instance).
-- No SSO, MFA or Part 11 e-signatures (see `production-readiness.md`).
-- Offline storage is not app-encrypted (see `offline.md`).
-- No email or SMS delivery: notifications are in-app only.
-- Not load-tested. Readiness is computed per case on request, so caching or materialization may be needed beyond a few hundred cases in the window.
+1. **Not proven on real devices or scanners.** All phone and offline tests ran in Chromium with iPhone emulation and browser-emulated offline mode. Real keyboard-wedge scanners differ in how they send the GS1 separator. Camera scanning relies on `BarcodeDetector`, which is unavailable in iOS Safari; no JS decoder is bundled. iOS may evict offline storage. Pilot with the customer's actual phones, scanners and MDM settings before go-live.
+2. **No live integrations.** ERP, hospital schedule and procurement links are simulated. Case times are not reconfirmed automatically (stale-feed warnings stay visible), and payment status never flows back.
+3. **Identity.** Local accounts only: no SSO, MFA or SCIM. Login lockout and rate limits are in-memory, for a single instance.
+4. **Issue owners default to the first active user in a role** (first ops manager, first warehouse user, first receiving user at the facility). There is no on-call roster or shift schedule yet, so ops should reassign on the board. Escalation goes to all ops managers once per missed deadline; there is no second escalation tier.
+5. **Board first load is slow on very large windows.** About 6.6 s for 600 cases on first sight, because issues are created once (the worker normally does this ahead of time). Steady state is about 0.85 s. Not tested under concurrent HTTP load.
+6. **Finance:**
+   - PO coverage is matched by catalog item and quantity, not by PO line number.
+   - One open draft packet per case and type; supplemental packets after sending.
+   - Price "approval" is the resolving finance user; there is no second-approver threshold.
+   - There is no customer portal for acceptance.
+7. **Usage corrections:** a rep can void a confirmed line only before its packet is sent; afterwards Finance issues a credit, and ops must correct stock with a count or adjustment. A voided line restores the case reservation only while the case is still scheduled.
+8. **Receiving hours are one daily window per facility.** There are no weekend or holiday calendars.
+9. **Workflow gaps carried from the first build:**
+   - owner-approval transfers of hospital-owned consignment;
+   - instrument-level serials inside trays;
+   - contract and preference-card authoring UIs;
+   - HIBCC parsing (detected and routed to review only).
+10. **Offline storage is not app-encrypted** (see `offline.md`).

@@ -26,3 +26,14 @@ npm start            # run the app at http://127.0.0.1:3001
 ```
 
 Next unfinished work (beyond the pilot acceptance criteria) is tracked in `docs/production-readiness.md` and `docs/known-limitations.md`.
+
+## Second pass checkpoint
+
+Baseline exercise → fixes → re-exercise, documented in `docs/second-pass.md`. Reproduce:
+
+```bash
+npm run test:all                      # typecheck + 54 integration + 15 browser tests
+npx tsx scripts/exercise.ts           # six-workflow exercise (compare docs/exercise/baseline.md vs after.md)
+npx tsx scripts/load-fixture.ts       # load fixture timings (docs/perf/)
+DEMO_TIME=16:00 npm start -- --reset  # demo at 4 p.m.
+```

@@ -85,8 +85,8 @@ export async function syncIssues(db: Db, tenantId: string, caseId: string, readi
       }
       const prevAct = prev.act_by ? new Date(prev.act_by).toISOString() : null;
       if (prevAct !== actBy) {
-        changes.push('deadline');
         const delta = prevAct && actBy ? Math.round((new Date(actBy).getTime() - new Date(prevAct).getTime()) / 60e3) : null;
+        changes.push(delta ? `deadline ${delta < 0 ? 'earlier' : 'later'} by ${Math.abs(delta)} min` : 'deadline changed');
         await event(db, tenantId, prev.id, 'deadline_changed', null, `Act-by ${prevAct ? fmtLocal(prevAct, c.timezone) : 'none'} → ${actBy ? fmtLocal(actBy, c.timezone) : 'none'}${delta ? ` (${delta < 0 ? 'earlier' : 'later'} by ${Math.abs(delta)} min)` : ''}`, { from: prevAct, to: actBy });
       }
       if (!changes.length && prev.message === msg && prev.severity === b.severity) continue;

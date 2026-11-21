@@ -56,7 +56,8 @@ export async function resetDb() {
 export async function seed(opts: { quiet?: boolean } = {}) {
   const log = (s: string) => { if (!opts.quiet) console.log(`[seed] ${s}`); };
   const D = demoDate();
-  const anchor = zoned(D, '08:00', CHI);
+  // Demo clock start (America/Chicago). DEMO_TIME=16:00 starts the demo at the 4 p.m. planning meeting.
+  const anchor = zoned(D, process.env.DEMO_TIME ?? '08:00', CHI);
   await resetDb();
   const pw = await hashPassword(DEMO_PASSWORD);
 
@@ -384,7 +385,7 @@ export async function seed(opts: { quiet?: boolean } = {}) {
     await db.query(`insert into sync_differences(tenant_id,feed_id,entity,entity_ref,field,our_value,their_value,status,created_at) values ($1,$2,'case','SYN-1002','scheduled_start','13:00 EST','13:30 EST (last feed message, 9 h old)','open',$3)`, [T, feed.id, nowIso()]);
   });
   await setClock(anchor);
-  log(`demo clock set to ${anchor.toISOString()} (demo date ${D}, 08:00 America/Chicago)`);
+  log(`demo clock set to ${anchor.toISOString()} (demo date ${D}, ${process.env.DEMO_TIME ?? '08:00'} America/Chicago)`);
 
   // ---------- Tenant 2 (isolation proof) ----------
   const [t2] = await q(`insert into tenants(slug,name) values ('ridgeway','Ridgeway Surgical Supply (synthetic)') returning id`);
