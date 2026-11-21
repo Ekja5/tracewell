@@ -444,8 +444,16 @@ describe('Facility and tenant isolation', () => {
     const ships = (await sbr.get('/api/shipments')).json();
     for (const s of ships) expect(s.to_name + s.from_name).toMatch(/St\. Brigid/);
     // Notifications: a PVS-only event never reaches SBR staff.
-    const pvsShip = await tx(async (db) => db.query(`select s.id from shipments s join locations l on l.id=s.to_location_id where l.code='PVS-RECV' limit 1`).then((r) => r.rows[0]));
+    // Inbound to Prairie Valley from somewhere other than St. Brigid: invisible.
+    const pvsShip = await tx(async (db) => db.query(`select s.id from shipments s join locations l on l.id=s.to_location_id join locations fl on fl.id=s.from_location_id where l.code='PVS-RECV' and fl.facility_id is distinct from (select id from facilities where code='SBR') order by s.created_at limit 1`).then((r) => r.rows[0]));
     expect((await sbr.get(`/api/shipments/${pvsShip.id}`)).statusCode).toBe(404);
+    // Outbound from St. Brigid to Prairie Valley (a loaner tray handed on): visible, but Prairie Valley's case is redacted.
+    const outbound = await tx(async (db) => db.query(`select s.id from shipments s join locations l on l.id=s.to_location_id join locations fl on fl.id=s.from_location_id where l.code='PVS-RECV' and fl.code='SBR-RECV' limit 1`).then((r) => r.rows[0]));
+    expect(outbound).toBeTruthy();
+    const ob = (await sbr.get(`/api/shipments/${outbound.id}`)).json();
+    expect(ob.shipment.case_ref).toBeNull();
+    expect(JSON.stringify(ob)).not.toMatch(/SYN-0903/);
+    expect(JSON.stringify((await sbr.get('/api/shipments')).json())).not.toMatch(/SYN-0903|SYN-1002/);
     const sbrUser = await ctxFor(SBR_RECV);
     const leaked = await count(`select count(*) n from notifications n join cases c on c.id=n.case_id where n.user_id=$1 and c.facility_id <> $2`, [sbrUser.userId, sbrUser.facilityId]);
     expect(leaked).toBe(0);

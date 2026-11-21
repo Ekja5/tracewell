@@ -175,7 +175,10 @@ export async function buildApp() {
   r('GET', '/api/pick-queue', 'shipment.pick', async (db, ctx) => ship.pickQueue(db, ctx));
   r('GET', '/api/shipments', null, async (db, ctx) => {
     const fac = isFacilityUser(ctx) ? ctx.facilityId : null;
-    return rows(db, `select s.*, fl.name from_name, tl.name to_name, c.case_ref from shipments s join locations fl on fl.id=s.from_location_id join locations tl on tl.id=s.to_location_id left join cases c on c.id=s.case_id
+    // Facility users never see another facility's case reference, even on a shipment leaving their own dock.
+    return rows(db, `select s.id, s.ref, s.kind, s.status, s.due_by, s.created_at, s.from_location_id, s.to_location_id, s.courier_name,
+         case when $1::uuid is null or c.facility_id=$1 then s.case_id end case_id, case when $1::uuid is null or c.facility_id=$1 then c.case_ref end case_ref,
+         fl.name from_name, tl.name to_name from shipments s join locations fl on fl.id=s.from_location_id join locations tl on tl.id=s.to_location_id left join cases c on c.id=s.case_id
        where ($1::uuid is null or tl.facility_id=$1 or fl.facility_id=$1) and ($2::boolean is false or s.status in ('dispatched','delivered')) order by s.created_at desc limit 200`, [fac, ctx.role === 'courier']);
   });
   r('POST', '/api/shipments', 'shipment.plan', async (db, ctx, req) => ship.createShipment(db, ctx, B(req)));
