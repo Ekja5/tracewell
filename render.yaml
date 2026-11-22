@@ -1,5 +1,6 @@
 # Render Blueprint: one web service (this repo's Dockerfile) and one managed PostgreSQL database.
-# In Render: New > Blueprint > pick this repository. You are asked for the four values marked sync: false.
+# In Render: New > Blueprint > pick this repository. You are asked for the values marked sync: false
+# (sign-in names and passwords). They are typed into Render and never stored in this repository.
 # Written without access to Render's current documentation: if Render reports a problem with this file
 # when you import it, send the message back and it will be corrected.
 databases:
@@ -27,13 +28,13 @@ services:
       - key: ASSISTANT_MODE
         value: demo
       - key: REVIEWER_LOGIN
-        value: jjsirios@gmail.com
+        sync: false
       - key: REVIEWER_NAME
-        value: Josh
+        sync: false
       - key: REVIEWER_PASSWORD
         sync: false
       - key: OWNER_LOGIN
-        value: ekja5
+        sync: false
       - key: OWNER_NAME
         sync: false
       - key: OWNER_PASSWORD

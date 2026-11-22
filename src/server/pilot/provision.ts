@@ -24,6 +24,7 @@ export const PILOT = {
 };
 
 export async function provisionPilot(opts: { clockTime?: string | null } = {}) {
+  if (process.env.NODE_ENV === 'production') throw new Error('Refusing to create demo accounts with the shared development password in production. Use REVIEW_MODE (random persona passwords) instead.');
   const pw = await hashPassword(PILOT.password);
   const [t] = await q(`insert into tenants(slug, name, timezone) values ($1,$2,$3) returning id`, [PILOT.slug, PILOT.name, PILOT.tz]);
   const T = t.id as string;

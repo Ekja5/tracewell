@@ -1,9 +1,9 @@
-# Draft email to Josh (send only after the site is live and you have tried the sign-in yourself)
+# Draft email to a reviewer (send only after the site is live and you have tried the sign-in yourself)
 
-**To:** jjsirios@gmail.com
+**To:** [REVIEWER EMAIL]
 **Subject:** A 15-minute look at Tracewell, and your honest reaction
 
-Josh,
+[First name],
 
 Thank you for agreeing to look at this. Tracewell helps an orthopedic distributor's operations team see which of
 tomorrow's cases need attention, with the evidence behind each answer. I would value your blunt reaction more
@@ -14,7 +14,7 @@ than a polite one.
 **To try it yourself (about 15 minutes):**
 
 1. Go to **https://[YOUR-REVIEW-ADDRESS]**
-2. In the "Email or username" box enter **jjsirios@gmail.com**. I will text you the password separately.
+2. In the "Email or username" box enter **[REVIEWER EMAIL]**. I will text you the password separately.
 3. You land on the **Reviewer guide**. Click **Restart the demo** first; it resets everything to 9:00 AM and asks you to sign in once more.
 4. Follow the six steps on that page. Each step tells you what to click and has a box for your reaction. Type a sentence or two and press **Send feedback**.
 5. On any other screen, the orange **Give feedback** button at the top does the same thing.

@@ -55,6 +55,7 @@ export async function resetDb() {
 }
 
 export async function seed(opts: { quiet?: boolean } = {}) {
+  if (process.env.NODE_ENV === 'production') throw new Error('Refusing to create demo accounts with the shared development password in production. Use REVIEW_MODE (random persona passwords) instead.');
   const log = (s: string) => { if (!opts.quiet) console.log(`[seed] ${s}`); };
   const D = demoDate();
   // Demo clock start (America/Chicago). DEMO_TIME=16:00 starts the demo at the 4 p.m. planning meeting.

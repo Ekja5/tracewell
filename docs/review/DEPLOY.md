@@ -9,9 +9,10 @@ change pushed to GitHub goes live automatically, which is what makes later fixes
    Connect GitHub to Claude at https://claude.ai/connect-github and install the Claude GitHub App on that repository.
 2. **Push the code:** tell Claude the repository name (for example `yourname/tracewell`); it pushes this code there.
 3. **Render:** create an account at render.com, choose **New > Blueprint**, and pick the repository. Render reads
-   `render.yaml` and asks for three values: your display name, your password, and the reviewer's password (12+ characters each).
+   `render.yaml` and asks for the reviewer's sign-in email, name and password, and your own sign-in name, display name and password
+   (passwords 12+ characters). These are typed into Render only; none of them is stored in the repository.
 4. Wait for the first deploy, open the address Render shows (`https://tracewell-review-....onrender.com`), sign in
-   as `ekja5`, and walk the Reviewer guide once before inviting anyone.
+   with your owner sign-in, and walk the Reviewer guide once before inviting anyone.
 
 `render.yaml` was written without access to Render's current documentation; if the import reports a problem, send it back.
 Use paid instance types for the web service and database: free ones go to sleep and make a reviewer wait.

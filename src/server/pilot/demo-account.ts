@@ -50,6 +50,7 @@ export interface DemoOpts {
 }
 export async function seedDemoAccount(opts: DemoOpts = {}) {
   const DAY = opts.day ?? defaultDemoDay();
+  if (!opts.lockPersonas && process.env.NODE_ENV === 'production') throw new Error('Refusing to create demo accounts with the shared development password in production. Use REVIEW_MODE (random persona passwords) instead.');
   await resetDb();
   const pw = await hashPassword(opts.lockPersonas ? crypto.randomBytes(24).toString('base64url') : DEMO.password);
   const [t] = await q(`insert into tenants(slug, name, timezone) values ('northline', $1, $2) returning id`, [DEMO.tenant, TZ]);
