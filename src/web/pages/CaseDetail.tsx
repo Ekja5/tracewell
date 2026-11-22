@@ -89,6 +89,16 @@ export function CaseDetail() {
 
       {can('case.manage') && c.status === 'scheduled' && <ScheduleForms c={c} catalog={data.requirements} act={act} />}
 
+      {data.usage?.length > 0 && (
+        <section className="card" data-testid="recorded-usage"><h2>Recorded usage ({data.usage.length})</h2>
+          <p className="small muted">Entered by the rep at closeout. Stock and the finance worklist are updated from these lines.</p>
+          <div className="table-wrap"><table aria-label="Recorded usage"><thead><tr><th>Item</th><th>Lot / serial</th><th>What happened</th><th>Units</th><th>Recorded by</th><th>When</th><th>How</th></tr></thead><tbody>
+            {data.usage.map((u: any) => <tr key={u.id}><td><strong>{u.ref ?? '—'}</strong><div className="small">{u.description}</div></td><td>{u.serial_number ? `SN ${u.serial_number}` : u.lot_number ? `Lot ${u.lot_number}` : '—'}</td>
+              <td><span className={`badge ${u.status === 'recorded' ? 'st-ready' : 'st-at_risk'}`}>{u.disposition.replace(/_/g, ' ')}</span>{u.status === 'needs_review' && <div className="small">waiting for review</div>}</td><td>{u.qty ?? '—'}</td><td>{u.actor}</td><td className="small">{fmtTime(u.occurred_at, tz)}</td>
+              <td className="small">{u.entry_method === 'simulator' ? 'label scan (simulated)' : u.entry_method === 'manual' ? 'manual entry' : 'label scan'}{u.recorded_offline ? ', saved offline first' : ''}</td></tr>)}
+          </tbody></table></div>
+        </section>)}
+
       {data.timeline.length > 0 && (
         <section className="card"><h2>Audit timeline</h2>
           <div className="table-wrap"><table><thead><tr><th>Recorded</th><th>Occurred</th><th>Actor</th><th>Action</th><th>Reason</th></tr></thead>

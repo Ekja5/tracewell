@@ -97,7 +97,7 @@ export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirement
     requirement: { id: req.id, ref: req.ref, description: req.description, itemType: req.item_type, qty: req.qty, reserved: already, needed },
     requiredBy: requiredBy.toISOString(), plannedUseDate: plannedUse, searchedAt: t.toISOString(),
     rankingRule: 'Meets cutoff, then shortest estimated travel, then most recent physical verification, then lowest incremental cost. Exact item only; no clinical substitutes.',
-    travelDisclaimer: 'Travel times and courier costs are seeded estimates, not live traffic or courier quotes.',
+    travelDisclaimer: 'Travel times and courier costs are estimates entered for each route, not live traffic or courier quotes.',
     eligible, excluded,
   };
 }

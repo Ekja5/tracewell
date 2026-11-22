@@ -45,7 +45,7 @@ export function Rescue() {
         <thead><tr><th>#</th><th>Unit</th><th>Location / custodian</th><th>Owner</th><th>Expiry</th><th>Est. travel</th><th>Est. arrival</th><th>Meets cutoff</th><th>Last physical verification</th><th>Incremental cost</th><th></th></tr></thead>
         <tbody>{data.eligible.map((e: any) => (
           <tr key={e.stockItemId + e.locationId}>
-            <td>{e.rank}</td><td><strong>{e.label}</strong><div className="small">Lot {e.lot}</div></td>
+            <td>{e.rank}</td><td><strong>{e.label}</strong>{e.serial && <div className="small">Lot {e.lot}</div>}</td>
             <td>{e.location}<div className="small muted">{e.locationKind} · custodian {e.custodian}</div></td><td className="small">{e.owner}</td><td>{e.expiry ?? '—'}</td>
             <td>{e.travelMinutes} min + {e.handlingMinutes} handling<div className="small muted">{e.travelBasis}</div></td>
             <td>{fmtTime(e.estimatedArrival, tz)}{e.arrivalNote && <div className="small sev-warning">{e.arrivalNote}</div>}</td><td>{e.meetsCutoff ? <span className="badge st-ready">Yes</span> : <span className="badge st-blocked">No</span>}{e.warning && <div className="small sev-warning">{e.warning}</div>}</td>
@@ -61,7 +61,7 @@ export function Rescue() {
         <thead><tr><th>Unit</th><th>Location</th><th>Owner</th><th>Expiry</th><th>Est. travel</th><th>Last physical scan</th><th>Why excluded</th></tr></thead>
         <tbody>{data.excluded.map((e: any) => (
           <tr key={e.stockItemId + e.locationId + e.condition}>
-            <td>{e.label}<div className="small">Lot {e.lot}</div></td><td>{e.location}{e.closerThanBest && <span className="badge st-at_risk"> closer</span>}</td><td className="small">{e.owner}</td><td>{e.expiry ?? '—'}</td>
+            <td>{e.label}{e.serial && <div className="small">Lot {e.lot}</div>}</td><td>{e.location}{e.closerThanBest && <span className="badge st-at_risk"> closer</span>}</td><td className="small">{e.owner}</td><td>{e.expiry ?? '—'}</td>
             <td>{e.travelMinutes != null ? `${e.travelMinutes} min` : '—'}</td><td className="small"><EvidenceBadge e={e.evidence} /></td><td><ul className="blockers">{e.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></td>
           </tr>))}</tbody></table></div>
       <dialog ref={dlg} aria-labelledby="pv-title">

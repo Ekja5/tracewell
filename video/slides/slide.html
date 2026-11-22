@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Tracewell</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f3d5e;color:#fff;font-family:Inter,system-ui,sans-serif;overflow:hidden}
+  .wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 170px}
+  .line{font-size:64px;line-height:1.18;font-weight:600;letter-spacing:-.01em;opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease;margin:0 0 26px;max-width:1500px}
+  .line.dim{color:#b9d0df;font-weight:500}
+  .on{opacity:1!important;transform:none!important}
+  .brand{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;transition:opacity .7s ease}
+  .brand .mark{font-size:150px;font-weight:700;letter-spacing:-.02em}
+  .brand .sub{font-size:40px;color:#b9d0df;margin-top:14px}
+  .brand .cta{font-size:54px;font-weight:600;margin-top:70px;padding:22px 44px;border-radius:16px;background:#127a6f;opacity:0;transition:opacity .6s ease}
+  .foot{position:absolute;left:0;right:0;bottom:34px;text-align:center;font-size:24px;color:#8fb0c5}
+  .rule{width:120px;height:8px;border-radius:4px;background:#e8a33d;margin:0 0 44px;opacity:0;transition:opacity .6s}
+</style></head><body>
+<div class="wrap" id="wrap"><div class="rule" id="rule"></div><p class="line" id="l1"></p><p class="line dim" id="l2"></p><p class="line dim" id="l3"></p></div>
+<div class="brand" id="brand"><div class="mark">Tracewell</div><div class="sub" id="sub">Case logistics for orthopedic distributors</div><div class="cta" id="cta">Let's walk through your inventory and upcoming cases.</div></div>
+<div class="foot">Product walkthrough · recorded from the running application · all data is synthetic</div>
+<script>
+  window.show = (id, text) => { const e = document.getElementById(id); if (text != null) e.textContent = text; e.classList.add('on'); };
+  window.brand = (sub) => { document.getElementById('wrap').style.transition = 'opacity .5s'; document.getElementById('wrap').style.opacity = 0; if (sub) document.getElementById('sub').textContent = sub; document.getElementById('brand').style.opacity = 1; };
+  window.cta = () => { document.getElementById('cta').style.opacity = 1; };
+</script></body></html>

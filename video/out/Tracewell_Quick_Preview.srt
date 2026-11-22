@@ -1,0 +1,50 @@
+1
+00:00:00,120 --> 00:00:06,975
+Tomorrow's surgical schedule is full, and inventory is
+spread across the warehouse, hospitals, and sales reps.
+
+2
+00:00:06,995 --> 00:00:08,270
+This is Tracewell.
+
+3
+00:00:09,178 --> 00:00:13,183
+One view of tomorrow's cases. A
+confirmed shortage, with the math.
+
+4
+00:00:13,486 --> 00:00:17,834
+A delivery the hospital hasn't checked
+in yet. And cases that are ready.
+
+5
+00:00:17,854 --> 00:00:20,734
+Every open issue has an owner and a deadline.
+
+6
+00:00:22,345 --> 00:00:25,520
+Ask which cases need attention before three today.
+
+7
+00:00:27,494 --> 00:00:32,546
+The answer comes from the same records, in
+deadline order, with links to the evidence.
+
+8
+00:00:33,614 --> 00:00:37,443
+Find the exact item, and see that
+it can arrive before the cutoff.
+
+9
+00:00:37,745 --> 00:00:42,777
+Reserve it in one click. The transfer stays
+planned until it is actually handed off.
+
+10
+00:00:44,378 --> 00:00:47,695
+See what needs attention, and act before the deadline.
+
+11
+00:00:47,715 --> 00:00:51,141
+Let's walk through your inventory and upcoming cases.
+

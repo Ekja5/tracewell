@@ -116,7 +116,8 @@ export function Closeout() {
   };
   const record = async (payload: any, meta: any = {}) => {
     const clientEventId = uuid();
-    const body = { clientEventId, caseId: id, disposition: disp, occurredAt: serverNow(), ...payload };
+    // capturedOnline: the device had a connection when the label was scanned (the event still goes through the same queue).
+    const body = { clientEventId, caseId: id, disposition: disp, occurredAt: serverNow(), capturedOnline: isOnline(), ...payload };
     await enqueue({ clientEventId, userId, caseId: id!, payload: body, meta });
     window.dispatchEvent(new Event('tw-queue'));
     setParsed(null); setRaw(''); setQty('');

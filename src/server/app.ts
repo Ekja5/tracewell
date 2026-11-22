@@ -158,7 +158,10 @@ export async function buildApp() {
     const timeline = can(ctx, 'audit.view') || ctx.role === 'rep' ? await rows(db, `select a.action, a.occurred_at, a.recorded_at, a.reason, u.display_name actor from audit_log a left join users u on u.id=a.actor_user_id where a.case_id=$1 order by a.recorded_at desc limit 100`, [c.id]) : [];
     const trays = reservations.filter((x) => x.item_type === 'tray' && x.status === 'active');
     const assignable = isFacilityUser(ctx) ? [] : await rows(db, `select id, display_name, role from users where active and (facility_id is null or facility_id=$1) order by role, display_name`, [c.facility_id]);
-    return { case: c, readiness, issues: caseIssues, assignable, policy, requirements, reservations, shipments, discrepancies, releases, card, timeline, trays };
+    // What the field recorded at closeout, visible to operations as soon as it reaches the server.
+    const usage = await rows(db, `select ue.id, ue.disposition, coalesce(ue.reviewed_qty_units, ue.qty_units) qty, ue.entry_method, ue.status, ue.recorded_offline, ue.occurred_at, ue.recorded_at, ci.ref, ci.description, s.lot_number, s.serial_number, u.display_name actor
+       from usage_events ue left join catalog_items ci on ci.id=ue.catalog_item_id left join stock_items s on s.id=ue.stock_item_id join users u on u.id=ue.actor_user_id where ue.case_id=$1 and ue.status <> 'voided' order by ue.occurred_at, ue.recorded_at`, [c.id]);
+    return { case: c, readiness, issues: caseIssues, assignable, policy, requirements, reservations, shipments, discrepancies, releases, card, timeline, trays, usage };
   });
   r('POST', '/api/cases/:id/move', 'case.manage', async (db, ctx, req) => moveCase(db, ctx, P(req).id, B(req)));
   r('POST', '/api/cases/:id/cancel', 'case.manage', async (db, ctx, req) => cancelCase(db, ctx, P(req).id, B(req)));
@@ -292,7 +295,7 @@ export async function buildApp() {
     for (const e of events) {
       try {
         await db.query('savepoint ev');
-        const res = await recordUsage(db, ctx, { ...e, offline: true });
+        const res = await recordUsage(db, ctx, { ...e, offline: e.capturedOnline !== true });
         await db.query('release savepoint ev');
         results.push({ clientEventId: e.clientEventId, state: res.status === 'recorded' ? 'synced' : res.status === 'rejected' ? 'rejected' : res.status === 'voided' ? 'voided' : 'needs_review', replayed: res.replayed, reason: res.reviewReason, usageEventId: res.usageEvent.id });
       } catch (err: any) {

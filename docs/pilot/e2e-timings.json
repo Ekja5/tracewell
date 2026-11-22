@@ -3,10 +3,10 @@
   "buyerQuantity": 7,
   "seconds": {
     "part1_from_empty_setup": 5.6,
-    "demo_a_board_and_four_questions": 1.9,
+    "demo_a_board_and_four_questions": 1.8,
     "demo_b_second_workbook_and_reconcile": 1.9,
-    "demo_c_changed_answer_and_evidence": 1.6,
-    "demo_d_reupload_review_report": 1.7,
-    "demo_total": 7.1
+    "demo_c_changed_answer_and_evidence": 1.5,
+    "demo_d_reupload_review_report": 1.5,
+    "demo_total": 6.8
   }
 }

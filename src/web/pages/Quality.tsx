@@ -81,20 +81,20 @@ export function RecallDetail() {
       <p><Link to="/quality">← Quality</Link></p>
       <h1>{r.ref} <Status s={r.status} /></h1>
       <p>{r.manufacturer} · device <strong>{r.item_ref}</strong> {r.item_description} · scope {r.scope_type}: <strong>{r.scope_values.join(', ')}</strong> · notice {r.manufacturer_notice_ref}</p>
-      <p className="small">{r.description}. Entered {fmtTime(r.entered_at)}{r.verified_at ? `, verified ${fmtTime(r.verified_at)}` : ''}{r.activated_at ? `, activated ${fmtTime(r.activated_at)}` : ''}.</p>
+      <p className="small">{String(r.description).replace(/\.$/, '')}. Entered {fmtTime(r.entered_at)}{r.verified_at ? `, verified ${fmtTime(r.verified_at)}` : ''}{r.activated_at ? `, activated ${fmtTime(r.activated_at)}` : ''}.</p>
       <Err e={err} />
       {r.status === 'draft' && can('recall.manage') && (
         <div className="card"><h2>Second-person verification</h2><p className="small">Re-enter the affected {r.scope_type}s from the manufacturer notice. Must be a different user from the one who entered the recall.</p>
           <div className="row"><input value={scope} onChange={(e) => setScope(e.target.value)} placeholder="lots / serials" /><button onClick={() => call(() => post(`/api/recalls/${id}/verify`, { confirmScope: scope.split(/[,\s]+/) }))}>Verify scope</button></div></div>)}
       <section className="card"><h2>{r.status === 'active' || r.status === 'closed' ? 'Affected inventory and references' : 'Preview of matches'}</h2>
-        <p>Units by location type: {Object.entries(data.summary.unitsByLocationKind).map(([k, v]) => `${k}: ${v}`).join(' · ') || 'none'}. Outstanding outside quarantine: <strong>{data.outstandingUnits}</strong>. Quarantined: {data.quarantinedUnits}.</p>
+        <p>Units by location type: {Object.entries(data.summary.unitsByLocationKind).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' · ') || 'none'}. Outstanding outside quarantine: <strong>{data.outstandingUnits}</strong>. Quarantined: {data.quarantinedUnits}.</p>
         <div className="table-wrap"><table><thead><tr><th>Unit</th><th>Location</th><th>Type</th><th>Owner / custodian</th><th>Qty</th><th>Condition</th></tr></thead>
-          <tbody>{data.inventory.map((i: any) => <tr key={i.id}><td>{i.serial_number ? `SN ${i.serial_number}` : ''} lot {i.lot_number}</td><td>{i.location_name}</td><td>{i.location_kind}</td><td className="small">{i.owner}{i.holder ? ` / ${i.holder}` : ''}</td><td>{i.qty}</td><td>{i.condition}</td></tr>)}</tbody></table></div>
+          <tbody>{data.inventory.map((i: any) => <tr key={i.id}><td>{i.serial_number ? `SN ${i.serial_number}` : ''} lot {i.lot_number}</td><td>{i.location_name}</td><td>{String(i.location_kind).replace(/_/g, ' ')}</td><td className="small">{i.owner}{i.holder ? ` / ${i.holder}` : ''}</td><td>{i.qty}</td><td>{i.condition}</td></tr>)}</tbody></table></div>
         <h3>Open cases holding affected units</h3>
         {data.reservations.map((x: any) => <div key={x.id} className="small">{x.case_ref} at {x.facility}, {fmtTime(x.scheduled_start, x.timezone)}: {x.serial_number ?? x.lot_number}</div>)}
         {!data.reservations.length && <p className="small muted">None.</p>}
         <h3>In-transit shipments</h3>
-        {data.shipments.map((x: any, i: number) => <div key={i} className="small">{x.ref} ({x.kind}, {x.status}): {x.serial_number ?? x.lot_number}</div>)}
+        {data.shipments.map((x: any, i: number) => <div key={i} className="small">{x.ref} ({String(x.kind).replace(/_/g, ' ')}, {x.status}): {x.serial_number ?? x.lot_number}</div>)}
         {!data.shipments.length && <p className="small muted">None.</p>}
         <h3>Completed case references (usage preserved, listed separately)</h3>
         {data.completedUsage.map((u: any) => <div key={u.id} className="small">{u.case_ref} at {u.facility}: {u.disposition} {u.serial_number ?? ''} lot {u.lot_number}, occurred {fmtTime(u.occurred_at, u.timezone)}{u.recorded_offline ? ' (captured offline)' : ''}</div>)}

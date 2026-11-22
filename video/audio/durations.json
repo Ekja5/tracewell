@@ -1,0 +1,202 @@
+{
+ "m1a": {
+  "hash": "0b23d54eb494",
+  "seconds": 6.784,
+  "text": "Tomorrow's surgical schedule is full. Inventory is spread across the warehouse, hospitals, and sales reps."
+ },
+ "m1b": {
+  "hash": "53ee762f0816",
+  "seconds": 4.893,
+  "text": "Here's how Tracewell helps the team see what needs attention, and act before the deadline."
+ },
+ "m2a": {
+  "hash": "72028920d175",
+  "seconds": 9.792,
+  "text": "It's nine in the morning. Avery, the operations manager, opens tomorrow's cases. Five are scheduled, each shown in its own hospital's local time."
+ },
+ "m2b": {
+  "hash": "e564fade5f51",
+  "seconds": 7.147,
+  "text": "The first one needs attention. It's a confirmed shortage. The case needs two tibial inserts, and only one is available."
+ },
+ "m2c": {
+  "hash": "45e8c911a3a5",
+  "seconds": 5.031,
+  "text": "The issue has an owner, Dana, the rep on the case. And a deadline: three o'clock today."
+ },
+ "m2d": {
+  "hash": "08c0778dcac8",
+  "seconds": 8.286,
+  "text": "The second case isn't short. The courier recorded the delivery, but the hospital hasn't checked it in. Marcus, at Harlan, can confirm it."
+ },
+ "m2e": {
+  "hash": "ddcba7df4e7e",
+  "seconds": 5.035,
+  "text": "And this is what ready looks like. Delivered, and checked in by the hospital's own staff."
+ },
+ "m3a": {
+  "hash": "d04bee5b13c3",
+  "seconds": 7.122,
+  "text": "Back to the shortage. Five on hand. Four reserved for other cases. One available. Two required. Short one."
+ },
+ "m3b": {
+  "hash": "baf86665bcb2",
+  "seconds": 8.018,
+  "text": "Every number has evidence behind it. The on-hand export, a physical count from this morning, and the reservations, with who made them."
+ },
+ "m3c": {
+  "hash": "904725b2d2a6",
+  "seconds": 4.678,
+  "text": "One click opens the exact spreadsheet row the coordinator loaded on Friday."
+ },
+ "m4a": {
+  "hash": "eb4243304c24",
+  "seconds": 6.056,
+  "text": "So where is another one? Avery opens the case, and searches for the exact item. No substitutes."
+ },
+ "m4b": {
+  "hash": "723e3ac7e4e7",
+  "seconds": 12.204,
+  "text": "One unit qualifies. It is in the trunk stock of Chris, another rep. It was counted this morning. And it can reach the hospital well before the cutoff. The travel time is an estimate, and it says so."
+ },
+ "m4c": {
+  "hash": "f70a82857c00",
+  "seconds": 6.251,
+  "text": "The four warehouse units are excluded, and the reason is on screen. They're reserved for two later cases."
+ },
+ "m4d": {
+  "hash": "36ca91e026fd",
+  "seconds": 3.214,
+  "text": "Before committing, a preview shows which cases are affected."
+ },
+ "m4e": {
+  "hash": "48a9324cef8d",
+  "seconds": 8.084,
+  "text": "One click reserves the unit and creates the transfer. The status is honest. Planned. Nothing picked, dispatched, or received yet."
+ },
+ "m4f": {
+  "hash": "efa2d7ca16c0",
+  "seconds": 8.614,
+  "text": "Back on the board, the transfer is waiting on Chris, with a time it has to leave by. And the case is still one unit short. Nobody is guessing."
+ },
+ "m5a": {
+  "hash": "c57907d64fe4",
+  "seconds": 4.766,
+  "text": "Avery can also just ask. Which cases need my attention before three today?"
+ },
+ "m5b": {
+  "hash": "8adfa73a1c53",
+  "seconds": 12.948,
+  "text": "The answer comes from the same records as the board. Three items, in deadline order, each with its owner. In this recording the assistant runs in demo mode, so the wording is templated. The numbers are live."
+ },
+ "m5c": {
+  "hash": "1d4b4edaac31",
+  "seconds": 3.576,
+  "text": "Every answer links to its sources. This one opens the case."
+ },
+ "m5d": {
+  "hash": "8708b1f5cf37",
+  "seconds": 5.483,
+  "text": "A follow-up, without repeating the case number. Why is this case short if we have five on hand?"
+ },
+ "m5e": {
+  "hash": "15572f7e2b37",
+  "seconds": 4.949,
+  "text": "Same arithmetic as the board, already updated for the unit Avery just reserved."
+ },
+ "m6a": {
+  "hash": "896c593b02aa",
+  "seconds": 5.909,
+  "text": "In the field, Dana has her cases on her phone. This morning's case is finished, so she closes it out."
+ },
+ "m6b": {
+  "hash": "6124c7e87f3b",
+  "seconds": 6.734,
+  "text": "She marks what happened, and scans the label. For this recording, the scan comes from a simulator instead of a camera."
+ },
+ "m6c": {
+  "hash": "fab97da7c500",
+  "seconds": 4.042,
+  "text": "Each scan is confirmed by the server, with the lot read from the barcode."
+ },
+ "m6d": {
+  "hash": "2be203b28dcd",
+  "seconds": 7.289,
+  "text": "Back at the office, that case now shows completed, with exactly what was used. The item, the lot, who recorded it, and when."
+ },
+ "m7a": {
+  "hash": "93d7cf750982",
+  "seconds": 9.919,
+  "text": "That lot number matters. This morning, a manufacturer notice arrived for one lot of femoral components. It was entered, then verified by a second person."
+ },
+ "m7b": {
+  "hash": "2cb9f093d87b",
+  "seconds": 11.597,
+  "text": "The trace finds every unit of that lot. One in the warehouse. One in transit. One at a hospital. Two of tomorrow's cases. And the unit implanted this morning, from Dana's scan."
+ },
+ "m7c": {
+  "hash": "f7106cf5917f",
+  "seconds": 3.755,
+  "text": "Activating the recall places holds, and gives each owner a task."
+ },
+ "m7d": {
+  "hash": "7e23cb40e748",
+  "seconds": 5.605,
+  "text": "And tomorrow's board flags both affected cases right away, while there is still time to replace them."
+ },
+ "m8a": {
+  "hash": "34ef5e9ca598",
+  "seconds": 6.181,
+  "text": "One place to see tomorrow's cases, the evidence behind every answer, and who needs to act by when."
+ },
+ "m8b": {
+  "hash": "e0a297c9988b",
+  "seconds": 2.854,
+  "text": "Let's walk through your inventory and upcoming cases."
+ },
+ "p1a": {
+  "hash": "a455339c9bcb",
+  "seconds": 8.0,
+  "text": "Tomorrow's surgical schedule is full, and inventory is spread across the warehouse, hospitals, and sales reps. This is Tracewell."
+ },
+ "p2a": {
+  "hash": "ce68d63bc137",
+  "seconds": 3.855,
+  "text": "One view of tomorrow's cases. A confirmed shortage, with the math."
+ },
+ "p2b": {
+  "hash": "8337178b19fc",
+  "seconds": 7.098,
+  "text": "A delivery the hospital hasn't checked in yet. And cases that are ready. Every open issue has an owner and a deadline."
+ },
+ "p3a": {
+  "hash": "7cd219796474",
+  "seconds": 3.025,
+  "text": "Ask which cases need attention before three today."
+ },
+ "p3b": {
+  "hash": "cd7bffe18ace",
+  "seconds": 4.902,
+  "text": "The answer comes from the same records, in deadline order, with links to the evidence."
+ },
+ "p4a": {
+  "hash": "9b65a474d35b",
+  "seconds": 3.679,
+  "text": "Find the exact item, and see that it can arrive before the cutoff."
+ },
+ "p4b": {
+  "hash": "4b43757cfbc3",
+  "seconds": 4.882,
+  "text": "Reserve it in one click. The transfer stays planned until it is actually handed off."
+ },
+ "p5a": {
+  "hash": "338093c593b5",
+  "seconds": 6.613,
+  "text": "See what needs attention, and act before the deadline. Let's walk through your inventory and upcoming cases."
+ },
+ "m6c2": {
+  "hash": "c920a180a11e",
+  "seconds": 5.116,
+  "text": "When every item is accounted for, she submits the closeout, and finance is notified."
+ }
+}

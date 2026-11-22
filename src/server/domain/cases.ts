@@ -183,7 +183,7 @@ export function fmtLocal(iso: string | Date, tz: string) {
 
 // ---------------- Readiness ----------------
 
-export interface Blocker { key: string; deadlineNote?: string; code: string; severity: 'critical' | 'warning'; message: string; owner: string; ownerRole: string; actBy?: string | null; requiredBy?: string | null; action: string; link?: string }
+export interface Blocker { key: string; ownerUserId?: string; deadlineNote?: string; code: string; severity: 'critical' | 'warning'; message: string; owner: string; ownerRole: string; actBy?: string | null; requiredBy?: string | null; action: string; link?: string }
 
 /**
  * Derive readiness strictly from persisted records. Nothing is "ready" because of a status flag:
@@ -204,7 +204,7 @@ export async function prefetchReadiness(db: Db, caseIds: string[]): Promise<Pref
   const facIds = [...new Set(cases.map((c) => c.facility_id))];
   const policies = await rows(db, `select distinct on (facility_id) * from facility_policies where facility_id = any($1) and effective_from <= $2 order by facility_id, version desc`, [facIds, nowIso()]);
   const reqs = await rows(db, `select cr.*, ci.ref, ci.description, ci.item_type, ci.tracking from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.case_id = any($1) and cr.active order by cr.mandatory desc, ci.item_type desc, ci.ref`, [caseIds]);
-  const resv = await rows(db, `select r.*, s.serial_number, s.lot_number, s.expiry_date, l.kind loc_kind, l.facility_id loc_facility, l.name loc_name, l.code loc_code,
+  const resv = await rows(db, `select r.*, s.serial_number, s.lot_number, s.expiry_date, l.kind loc_kind, l.facility_id loc_facility, l.name loc_name, l.code loc_code, l.holder_user_id loc_holder, (select hu.display_name from users hu where hu.id=l.holder_user_id) loc_holder_name,
       te.minutes travel_min, (select h.reason from quality_holds h where h.stock_item_id=r.stock_item_id and h.status='active' limit 1) hold_reason
     from reservations r join cases c on c.id=r.case_id join stock_items s on s.id=r.stock_item_id join locations l on l.id=r.location_id
     left join travel_estimates te on te.from_location_id=r.location_id and te.to_facility_id=c.facility_id
@@ -256,7 +256,7 @@ export async function caseReadiness(db: Db, caseId: string, pf?: Prefetch) {
 
   for (const req of reqs) {
     const due = req.item_type === 'tray' ? trayDue : implantDue;
-    const resv = pf ? (pf.resvByReq.get(req.id) ?? []) : await rows(db, `select r.*, s.serial_number, s.lot_number, s.expiry_date, l.kind loc_kind, l.facility_id loc_facility, l.name loc_name, l.code loc_code,
+    const resv = pf ? (pf.resvByReq.get(req.id) ?? []) : await rows(db, `select r.*, s.serial_number, s.lot_number, s.expiry_date, l.kind loc_kind, l.facility_id loc_facility, l.name loc_name, l.code loc_code, l.holder_user_id loc_holder, (select hu.display_name from users hu where hu.id=l.holder_user_id) loc_holder_name,
         te.minutes travel_min,
         (select h.reason from quality_holds h where h.stock_item_id=r.stock_item_id and h.status='active' limit 1) hold_reason
       from reservations r join stock_items s on s.id=r.stock_item_id join locations l on l.id=r.location_id
@@ -332,7 +332,9 @@ export async function caseReadiness(db: Db, caseId: string, pf?: Prefetch) {
       blockers.push({
         key: `unit:${r.id}`, deadlineNote: dueNote(req.item_type), code: ship ? 'awaiting_dispatch' : 'not_shipped', severity: late ? 'critical' : 'warning',
         message: `${label} is at ${r.loc_name}${ship ? ` on ${ship.ref} (${ship.status})` : ' with no shipment planned'}. ${actBy ? `Estimated travel ${r.travel_min} min, so it must leave by ${fmtLocal(actBy, c.timezone)}.` : 'No travel estimate exists for this route.'}${late && actBy ? ' That time has passed; find a closer unit.' : ''}`,
-        owner: ship ? 'Warehouse' : opsName, ownerRole: ship ? 'warehouse' : 'ops_manager', requiredBy: due.toISOString(), actBy: actBy?.toISOString() ?? null,
+        // A planned shipment out of a rep's trunk is handed over by that rep, not by the warehouse.
+        owner: ship ? (r.loc_holder ? r.loc_holder_name : 'Warehouse') : opsName, ownerRole: ship ? (r.loc_holder ? 'rep' : 'warehouse') : 'ops_manager', ownerUserId: ship && r.loc_holder ? r.loc_holder : undefined,
+        requiredBy: due.toISOString(), actBy: actBy?.toISOString() ?? null,
         action: ship ? 'Pick, pack and dispatch' : 'Create delivery shipment', link: ship ? `/shipments/${ship.id}` : `/cases/${caseId}`,
       });
       u.state = ship ? `awaiting dispatch (${ship.status})` : 'not shipped';

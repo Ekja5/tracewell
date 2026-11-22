@@ -62,7 +62,7 @@ export async function syncIssues(db: Db, tenantId: string, caseId: string, readi
       const prev = byKey.get(b.key);
       const msg = `${b.message}${b.deadlineNote ? ' ' + b.deadlineNote : ''}`;
       if (!prev) {
-        const owner = await defaultOwner(db, b.ownerRole, c);
+        const owner = b.ownerUserId ?? await defaultOwner(db, b.ownerRole, c);
         const ins = (await db.query(`insert into case_issues(tenant_id, case_id, issue_key, code, severity, message, action, link, status, owner_user_id, owner_role, act_by, required_by, created_at, updated_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9,$10,$11,$12,$13,$13) on conflict (tenant_id, case_id, issue_key) do nothing returning *`,
           [tenantId, caseId, b.key, b.code, b.severity, msg, b.action, b.link ?? null, owner, b.ownerRole, actBy, b.requiredBy ?? null, nowIso()])).rows[0];
@@ -78,7 +78,7 @@ export async function syncIssues(db: Db, tenantId: string, caseId: string, readi
       if (prev.status === 'resolved') { status = 'open'; changes.push('reopened'); await event(db, tenantId, prev.id, 'reopened', null, `Reopened: ${msg}`); }
       if (prev.code !== b.code) {
         changes.push(`stage changed: ${prev.code} → ${b.code}`);
-        if (!prev.owner_locked || prev.owner_role !== b.ownerRole) owner = await defaultOwner(db, b.ownerRole, c);
+        if (!prev.owner_locked || prev.owner_role !== b.ownerRole) owner = b.ownerUserId ?? await defaultOwner(db, b.ownerRole, c);
         // A new stage needs a fresh acknowledgment.
         if (status === 'acknowledged') status = 'open';
         await event(db, tenantId, prev.id, 'updated', null, `Now: ${msg}`, { from: prev.code, to: b.code, owner_user_id: owner });

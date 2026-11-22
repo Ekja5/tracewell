@@ -44,7 +44,7 @@ test('2. Ops runs exact-item rescue: closer units excluded with reasons; reserve
   const eligible = page.locator('table[aria-label="Eligible sources"]');
   await expect(eligible).toContainText('INS-0002');
   await expect(eligible).toContainText('Jordan Ames trunk stock');
-  await expect(page.getByText('seeded estimates').first()).toBeVisible();
+  await expect(page.getByText('estimates entered for each route').first()).toBeVisible();
   await eligible.getByRole('button', { name: 'Preview transfer' }).click();
   await expect(page.locator('dialog')).toContainText('Affected cases');
   await expect(page.locator('dialog')).toContainText('SYN-1001');

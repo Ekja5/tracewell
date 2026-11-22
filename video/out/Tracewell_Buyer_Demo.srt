@@ -1,0 +1,235 @@
+1
+00:00:00,120 --> 00:00:07,054
+Tomorrow's surgical schedule is full. Inventory is
+spread across the warehouse, hospitals, and sales reps.
+
+2
+00:00:07,357 --> 00:00:12,400
+Here's how Tracewell helps the team see what
+needs attention, and act before the deadline.
+
+3
+00:00:13,306 --> 00:00:18,726
+It's nine in the morning. Avery, the
+operations manager, opens tomorrow's cases.
+
+4
+00:00:18,746 --> 00:00:23,248
+Five are scheduled, each shown
+in its own hospital's local time.
+
+5
+00:00:23,551 --> 00:00:26,983
+The first one needs attention. It's a confirmed shortage.
+
+6
+00:00:27,003 --> 00:00:30,848
+The case needs two tibial inserts,
+and only one is available.
+
+7
+00:00:31,151 --> 00:00:36,332
+The issue has an owner, Dana, the rep on the
+case. And a deadline: three o'clock today.
+
+8
+00:00:36,949 --> 00:00:43,143
+The second case isn't short. The courier recorded
+the delivery, but the hospital hasn't checked it in.
+
+9
+00:00:43,163 --> 00:00:45,385
+Marcus, at Harlan, can confirm it.
+
+10
+00:00:45,688 --> 00:00:50,873
+And this is what ready looks like. Delivered,
+and checked in by the hospital's own staff.
+
+11
+00:00:51,778 --> 00:00:56,235
+Back to the shortage. Five on hand.
+Four reserved for other cases.
+
+12
+00:00:56,255 --> 00:00:59,050
+One available. Two required. Short one.
+
+13
+00:01:01,416 --> 00:01:08,269
+Every number has evidence behind it. The on-hand export,
+a physical count from this morning, and the reservations,
+
+14
+00:01:08,289 --> 00:01:09,584
+with who made them.
+
+15
+00:01:09,886 --> 00:01:14,714
+One click opens the exact spreadsheet
+row the coordinator loaded on Friday.
+
+16
+00:01:15,619 --> 00:01:20,689
+So where is another one? Avery opens the
+case, and searches for the exact item.
+
+17
+00:01:20,709 --> 00:01:21,825
+No substitutes.
+
+18
+00:01:22,127 --> 00:01:26,279
+One unit qualifies. It is in the
+trunk stock of Chris, another rep.
+
+19
+00:01:26,299 --> 00:01:31,385
+It was counted this morning. And it can
+reach the hospital well before the cutoff.
+
+20
+00:01:31,405 --> 00:01:34,481
+The travel time is an estimate, and it says so.
+
+21
+00:01:35,452 --> 00:01:39,459
+The four warehouse units are
+excluded, and the reason is on screen.
+
+22
+00:01:39,479 --> 00:01:41,853
+They're reserved for two later cases.
+
+23
+00:01:42,156 --> 00:01:45,520
+Before committing, a preview
+shows which cases are affected.
+
+24
+00:01:46,476 --> 00:01:49,803
+One click reserves the unit and creates the transfer.
+
+25
+00:01:49,823 --> 00:01:54,710
+The status is honest. Planned. Nothing
+picked, dispatched, or received yet.
+
+26
+00:01:55,012 --> 00:02:00,124
+Back on the board, the transfer is waiting
+on Chris, with a time it has to leave by.
+
+27
+00:02:00,144 --> 00:02:03,776
+And the case is still one unit short. Nobody is guessing.
+
+28
+00:02:05,678 --> 00:02:10,594
+Avery can also just ask. Which cases
+need my attention before three today?
+
+29
+00:02:13,339 --> 00:02:19,951
+The answer comes from the same records as the board.
+Three items, in deadline order, each with its owner.
+
+30
+00:02:19,971 --> 00:02:24,941
+In this recording the assistant runs in
+demo mode, so the wording is templated.
+
+31
+00:02:24,961 --> 00:02:26,437
+The numbers are live.
+
+32
+00:02:27,531 --> 00:02:31,257
+Every answer links to its
+sources. This one opens the case.
+
+33
+00:02:32,455 --> 00:02:38,088
+A follow-up, without repeating the case number.
+Why is this case short if we have five on hand?
+
+34
+00:02:40,033 --> 00:02:45,132
+Same arithmetic as the board, already
+updated for the unit Avery just reserved.
+
+35
+00:02:46,037 --> 00:02:52,096
+In the field, Dana has her cases on her phone. This
+morning's case is finished, so she closes it out.
+
+36
+00:02:52,399 --> 00:02:56,120
+She marks what happened, and scans
+the label. For this recording,
+
+37
+00:02:56,140 --> 00:02:59,283
+the scan comes from a simulator instead of a camera.
+
+38
+00:02:59,587 --> 00:03:03,779
+Each scan is confirmed by the server,
+with the lot read from the barcode.
+
+39
+00:03:04,083 --> 00:03:09,349
+When every item is accounted for, she submits
+the closeout, and finance is notified.
+
+40
+00:03:10,530 --> 00:03:15,132
+Back at the office, that case now shows
+completed, with exactly what was used.
+
+41
+00:03:15,152 --> 00:03:17,969
+The item, the lot, who recorded it, and when.
+
+42
+00:03:20,769 --> 00:03:27,470
+That lot number matters. This morning, a manufacturer
+notice arrived for one lot of femoral components.
+
+43
+00:03:27,490 --> 00:03:30,838
+It was entered, then verified by a second person.
+
+44
+00:03:31,141 --> 00:03:35,187
+The trace finds every unit of
+that lot. One in the warehouse.
+
+45
+00:03:35,207 --> 00:03:39,119
+One in transit. One at a
+hospital. Two of tomorrow's cases.
+
+46
+00:03:39,139 --> 00:03:42,888
+And the unit implanted this morning, from Dana's scan.
+
+47
+00:03:44,788 --> 00:03:48,693
+Activating the recall places
+holds, and gives each owner a task.
+
+48
+00:03:51,187 --> 00:03:56,942
+And tomorrow's board flags both affected cases right
+away, while there is still time to replace them.
+
+49
+00:03:59,559 --> 00:04:05,890
+One place to see tomorrow's cases, the evidence
+behind every answer, and who needs to act by when.
+
+50
+00:04:06,193 --> 00:04:09,197
+Let's walk through your inventory and upcoming cases.
+
