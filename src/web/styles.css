@@ -171,3 +171,8 @@ tr.out-held td { background:#fffaf0; }
 .ask-entry { border-top:1px solid var(--line); padding-top:6px; margin-top:6px; }
 .report { max-width:900px; background:#fff; padding:20px; }
 @media print { header.top, nav#nav, .democlock, .syncbar, .no-print { display:none !important; } main { padding:0; } .report { padding:0; } body { background:#fff; } }
+/* Hosted review */
+.fb-btn { background:#e8a33d; border-color:#e8a33d; color:#13202b; font-weight:600; min-height:38px; }
+.fb-box textarea { width:100%; font:inherit; padding:8px; border:1px solid var(--line); border-radius:6px; }
+.fb-box select { font:inherit; padding:6px; }
+.review-steps { list-style:none; padding:0; }

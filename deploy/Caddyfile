@@ -1,0 +1,10 @@
+# HTTPS is obtained automatically for SITE_DOMAIN (its DNS record must point at this server).
+{$SITE_DOMAIN} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Robots-Tag "noindex, nofollow"
+	}
+	reverse_proxy app:3001
+}

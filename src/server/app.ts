@@ -29,6 +29,7 @@ import * as reconcile from './pilot/reconcile.js';
 import * as pilotEval from './pilot/evaluation.js';
 import { tomorrowView, reserveAvailable } from './pilot/tomorrow.js';
 import { SAMPLES, sampleFile } from './pilot/samples.js';
+import * as review from './pilot/review.js';
 import { AVAILABILITY_SQL, ledgerReconciliation, reverseMovement, reserve } from './domain/inventory.js';
 import { parseScan } from '../shared/gs1.js';
 
@@ -91,7 +92,7 @@ export async function buildApp() {
     const ctx = await auth(req);
     const [u] = await q(`select u.*, f.name facility_name, f.timezone facility_tz, t.name tenant_name, t.timezone tenant_tz from users u join tenants t on t.id=u.tenant_id left join facilities f on f.id=u.facility_id where u.id=$1`, [ctx.userId]);
     const perms = Object.keys(PERMS).filter((p) => can(ctx, p));
-    return { user: { ...publicUser(u), facilityName: u.facility_name, facilityTimezone: u.facility_tz, tenantName: u.tenant_name, tenantTimezone: u.tenant_tz }, perms, now: nowIso(), demoClock: config.demoClock, demoShortcuts: config.demoLoginShortcuts };
+    return { user: { ...publicUser(u), facilityName: u.facility_name, facilityTimezone: u.facility_tz, tenantName: u.tenant_name, tenantTimezone: u.tenant_tz, email: u.email }, reviewMode: review.reviewMode, canReadFeedback: review.canReadFeedback(u.email), perms, now: nowIso(), demoClock: config.demoClock, demoShortcuts: config.demoLoginShortcuts };
   });
   // Development-only demo shortcuts. Disabled (404) whenever NODE_ENV=production.
   app.get('/api/auth/demo-accounts', async (req, reply) => {
@@ -196,6 +197,12 @@ export async function buildApp() {
   r('GET', '/api/cases/:id/handoff-notes', 'closeout.record', async (db, ctx, req) => notes.listNotes(db, ctx, P(req).id));
   r('POST', '/api/handoff-notes/:id/revise', 'closeout.record', async (db, ctx, req) => notes.reviseNote(db, ctx, P(req).id, B(req)));
   r('POST', '/api/handoff-notes/:id/approve', 'closeout.record', async (db, ctx, req) => notes.approveNote(db, ctx, P(req).id));
+
+  // ---------------- Hosted review: feedback and demo restart ----------------
+  app.post('/api/feedback', async (req) => { const ctx = await auth(req); const [u] = await q(`select email from users where id=$1`, [ctx.userId]); return review.addFeedback(ctx, u.email, B(req)); });
+  app.get('/api/feedback', async (req) => { const ctx = await auth(req); const [u] = await q(`select email from users where id=$1`, [ctx.userId]); if (!review.canReadFeedback(u.email)) throw new AppError(403, 'forbidden', 'Not permitted'); return review.listFeedback(); });
+  // Rebuilds the whole synthetic demo account (review deployments only). Runs outside any request transaction.
+  app.post('/api/review/restart', async (req) => { const ctx = await auth(req); if (ctx.role !== 'admin') throw new AppError(403, 'forbidden', 'Not permitted'); const r = await review.restartDemo(); return { ok: true, day: r.day }; });
 
   // ---------------- Pilot: spreadsheet uploads, reconciliation, tomorrow, evaluation ----------------
   r('GET', '/api/uploads', 'upload.view', async (db) => ({ runs: await uploads.listRuns(db), samples: SAMPLES, kinds: uploads.KIND_LABEL }));

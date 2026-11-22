@@ -1,0 +1,42 @@
+# Hosted review of Tracewell with synthetic data. From this folder:
+#   cp env.example .env   (fill in every value)   then   docker compose up -d --build
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set in .env}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, timeout: 3s, retries: 20 }
+  app:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: postgres://orthoapp:${APP_DB_PASSWORD}@db:5432/tracewell
+      SESSION_SECRET: ${SESSION_SECRET:?set in .env}
+      REVIEW_MODE: "true"
+      DEMO_CLOCK: "true"
+      ASSISTANT_MODE: demo
+      FEEDBACK_FILE: /data/feedback.jsonl
+      REVIEWER_EMAIL: ${REVIEWER_EMAIL:?set in .env}
+      REVIEWER_NAME: ${REVIEWER_NAME:?set in .env}
+      REVIEWER_PASSWORD: ${REVIEWER_PASSWORD:?set in .env}
+      OWNER_EMAIL: ${OWNER_EMAIL:?set in .env}
+      OWNER_NAME: ${OWNER_NAME:?set in .env}
+      OWNER_PASSWORD: ${OWNER_PASSWORD:?set in .env}
+    volumes:
+      - feedback:/data
+  web:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443"]
+    environment: { SITE_DOMAIN: "${SITE_DOMAIN:?set in .env}" }
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+volumes: { dbdata: {}, feedback: {}, caddydata: {} }

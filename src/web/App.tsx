@@ -8,6 +8,7 @@ import { CaseDetail } from './pages/CaseDetail';
 import { QuickNote } from './pages/QuickNote';
 import { UploadsPage, UploadRun } from './pages/Uploads';
 import { Tomorrow, Reconcile, PilotReview, PilotReport } from './pages/Pilot';
+import { ReviewGuide, FeedbackList, FeedbackButton } from './pages/Review';
 import { Rescue } from './pages/Rescue';
 import { Shipments, ShipmentDetail, PickQueue } from './pages/Shipments';
 import { TrayVerify } from './pages/TrayVerify';
@@ -90,9 +91,10 @@ function SyncBar({ me }: { me: Me }) {
   );
 }
 
-const NAV: { to: string; label: string; perm?: string; roles?: string[] }[] = [
+const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?: boolean }[] = [
   { to: '/', label: 'Readiness', perm: 'board.view' },
   { to: '/tomorrow', label: "Tomorrow's cases", perm: 'board.view' },
+  { to: '/feedback', label: 'Feedback received', review: true },
   { to: '/uploads', label: 'Load files', perm: 'upload.view' },
   { to: '/reconcile', label: 'Reconcile', perm: 'upload.view' },
   { to: '/pilot', label: 'Pilot review', perm: 'pilot.record' },
@@ -126,7 +128,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
   const logout = async () => { await clearForUser(me.user.id).catch(() => {}); localStorage.removeItem('tw-me'); await post('/api/auth/logout').catch(() => {}); location.href = '/login'; };
   const role = me.user.role;
   const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
-  const home = role === 'warehouse' ? '/pick' : role === 'finance' ? '/finance' : role === 'quality_manager' ? '/quality' : role === 'rep' && narrow ? '/today' : null;
+  const home = (me as any).reviewMode && role === 'admin' ? '/review' : role === 'warehouse' ? '/pick' : role === 'finance' ? '/finance' : role === 'quality_manager' ? '/quality' : role === 'rep' && narrow ? '/today' : null;
   return (
     <MeCtx.Provider value={{ me, can, refresh }}>
       <header className="top">
@@ -136,6 +138,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
           <label className="sr" htmlFor="gsearch">Exact catalog, lot, serial, GTIN or case search</label>
           <input id="gsearch" placeholder="Search ref / lot / serial / GTIN / case" value={q} onChange={(e) => setQ(e.target.value)} />
         </form>
+        {(me as any).reviewMode && <><Link to="/review" className="notes">Reviewer guide</Link><FeedbackButton /></>}
         <Link to="/notifications" className="notes" aria-label={`${unread} unread notifications`}>Alerts{unread ? <span className="count">{unread}</span> : null}</Link>
         <div className="who"><span>{me.user.displayName}</span><small>{ROLE_LABEL[role]}{me.user.facilityName ? ` · ${me.user.facilityName}` : ''} · {me.user.tenantName}</small></div>
         <button className="link" onClick={logout}>Sign out</button>
@@ -144,7 +147,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
       <SyncBar me={me} />
       <div className="layout">
         <nav id="nav" className={menu ? 'open' : ''} aria-label="Main">
-          {NAV.filter((n) => (!n.perm || can(n.perm)) && (!n.roles || n.roles.includes(role))).map((n) => <NavLink key={n.to} to={n.to} end={n.to === '/'}>{n.label}</NavLink>)}
+          {NAV.filter((n) => (!n.perm || can(n.perm)) && (!n.roles || n.roles.includes(role)) && (!n.review || (me as any).canReadFeedback)).map((n) => <NavLink key={n.to} to={n.to} end={n.to === '/'}>{n.label}</NavLink>)}
         </nav>
         <main id="main">
           <Routes>
@@ -176,6 +179,8 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/handoff" element={<Handoff />} />
             <Route path="/find" element={<FindItem />} />
             <Route path="/tomorrow" element={<Tomorrow />} />
+            <Route path="/review" element={<ReviewGuide />} />
+            <Route path="/feedback" element={<FeedbackList />} />
             <Route path="/uploads" element={<UploadsPage />} />
             <Route path="/uploads/runs/:id" element={<UploadRun />} />
             <Route path="/reconcile" element={<Reconcile />} />

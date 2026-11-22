@@ -1,0 +1,11 @@
+node_modules
+dist
+.pgdata
+.env
+deploy/.env
+video
+docs
+tests
+test-results
+data
+.git
