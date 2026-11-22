@@ -48,6 +48,9 @@ export async function buildApp() {
     reply.header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'same-origin').header('X-Frame-Options', 'DENY')
       .header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; connect-src 'self'");
     if (req.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
+    // Hosted sites: HTTPS only; review sites are also kept out of search engines.
+    if (config.isProd) reply.header('Strict-Transport-Security', 'max-age=31536000');
+    if (review.reviewMode) reply.header('X-Robots-Tag', 'noindex, nofollow');
     // CSRF defense: state-changing API calls must carry a custom header (not settable cross-site without CORS).
     if (req.url.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-tw-csrf'] !== '1') {
       reply.code(403).send({ error: 'csrf', message: 'Missing anti-CSRF header' });
@@ -198,6 +201,7 @@ export async function buildApp() {
   r('POST', '/api/handoff-notes/:id/revise', 'closeout.record', async (db, ctx, req) => notes.reviseNote(db, ctx, P(req).id, B(req)));
   r('POST', '/api/handoff-notes/:id/approve', 'closeout.record', async (db, ctx, req) => notes.approveNote(db, ctx, P(req).id));
 
+  app.get('/robots.txt', async (_req, reply) => reply.type('text/plain').send(review.reviewMode ? 'User-agent: *\nDisallow: /\n' : 'User-agent: *\nDisallow: /api/\n'));
   // ---------------- Hosted review: feedback and demo restart ----------------
   app.post('/api/feedback', async (req) => { const ctx = await auth(req); const [u] = await q(`select email from users where id=$1`, [ctx.userId]); return await review.addFeedback(ctx, u.email, B(req)); });
   app.get('/api/feedback', async (req) => { const ctx = await auth(req); const [u] = await q(`select email from users where id=$1`, [ctx.userId]); if (!review.canReadFeedback(u.email)) throw new AppError(403, 'forbidden', 'Not permitted'); return review.listFeedback(); });
