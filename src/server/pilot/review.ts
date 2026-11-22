@@ -3,16 +3,20 @@
  * restart to a clean 9:00 AM state, and leave feedback on. Feedback is kept in a separate database
  * schema so that restarting the demo never erases it.
  */
-import { AppError, q } from '../db.js';
+import { AppError, q, withTenant } from '../db.js';
+import { hashPassword } from '../auth.js';
 import type { Ctx } from '../perms.js';
 import { seedDemoAccount } from './demo-account.js';
 
 export const reviewMode = process.env.REVIEW_MODE === 'true';
 
+/** Why a named sign-in is not active (shown on the health check; never includes the values). */
+export const problems: Record<string, string> = {};
 function person(prefix: string) {
+  delete problems[prefix];
   const email = process.env[`${prefix}_LOGIN`] ?? process.env[`${prefix}_EMAIL`], password = process.env[`${prefix}_PASSWORD`];
-  if (!email || !password) return null;
-  if (password.length < 12) throw new Error(`${prefix}_PASSWORD must be at least 12 characters`);
+  if (!email || !password) { problems[prefix] = `${!email ? 'sign-in name' : 'password'} is not set`; return null; }
+  if (password.length < 12) { problems[prefix] = 'password is shorter than 12 characters'; return null; }
   return { email, name: process.env[`${prefix}_NAME`] ?? email.split('@')[0], password };
 }
 /** Only the account owner reads what reviewers sent. */
@@ -30,7 +34,20 @@ export async function ensureDemo() {
   const n = await q(`select to_regclass('public.tenants') t`);
   const empty = !n[0].t || Number((await q(`select count(*) n from tenants`))[0].n) === 0;
   if (empty) { const r = await restartDemo(); console.log(`[review] demo account built for ${r.day}`); }
+  else await syncPeople();
+  console.log(`[review] reviewer sign-in: ${problems.REVIEWER ?? 'active'}; owner sign-in: ${problems.OWNER ?? 'active'}`);
 }
+/** Applies the reviewer/owner sign-ins from the host's settings to the existing demo account (so a changed password takes effect on the next deploy). */
+async function syncPeople() {
+  const [t] = await q(`select id from tenants order by created_at limit 1`);
+  for (const p of [person('REVIEWER'), person('OWNER')]) {
+    if (!p) continue;
+    const hash = await hashPassword(p.password);
+    await withTenant(t.id, (db) => db.query(`insert into users(tenant_id,email,display_name,password_hash,role) values ($1,$2,$3,$4,'admin')
+      on conflict (email) do update set password_hash=excluded.password_hash, display_name=excluded.display_name, active=true`, [t.id, p.email.toLowerCase(), p.name, hash]));
+  }
+}
+export const signInStatus = () => (reviewMode ? { reviewer: problems.REVIEWER ?? 'active', owner: problems.OWNER ?? 'active' } : undefined);
 
 // Feedback lives in its own schema, which a demo restart (drop of schema "public") never touches.
 let ready = false;

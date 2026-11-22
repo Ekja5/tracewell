@@ -110,7 +110,7 @@ export async function buildApp() {
     reply.setCookie(COOKIE, s.token, { httpOnly: true, sameSite: 'lax', secure: false, path: '/', maxAge: config.sessionHours * 3600 });
     return { user: s.user };
   });
-  app.get('/api/health', async () => { await q('select 1'); return { ok: true, now: nowIso() }; });
+  app.get('/api/health', async () => { await q('select 1'); return { ok: true, now: nowIso(), signIns: review.signInStatus() }; });
 
   // ---------------- Reference data ----------------
   r('GET', '/api/meta', null, async (db, ctx) => {
