@@ -12,6 +12,8 @@ async function as(browser: Browser, email: string, opts: any = {}): Promise<{ pa
   await page.goto('/login');
   await page.click(`button[data-email="${email}"]`);
   await expect(page.locator('header.top')).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  if (/\/attention$/.test(page.url())) await page.goto('/board'); // managers now land on the work queue; these stories start from the readiness board
   return { page, close: () => ctx.close() };
 }
 
@@ -28,7 +30,7 @@ test('ops assigns an at-risk issue from the board; the owner acknowledges; the h
   const j = await as(browser, 'jordan.rep@lakeshore.example', { viewport: { width: 1280, height: 900 } });
   await j.page.goto('/notifications');
   await expect(j.page.getByText('assigned to you by Morgan Hale').first()).toBeVisible();
-  await j.page.goto('/');
+  await j.page.goto('/board');
   const jIssue = j.page.locator('section[data-case="SYN-1002"] li.issue').filter({ hasText: 'FEM4L-0104' });
   await jIssue.getByRole('button', { name: 'Acknowledge' }).click();
   await expect(jIssue).toContainText('Acknowledged by Jordan Ames');

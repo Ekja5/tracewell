@@ -11,12 +11,13 @@ import { fmtTime, post } from '../lib/api';
 const KINDS: [string, string][] = [['inventory', 'Inventory balances'], ['schedule', 'Case schedule'], ['requirements', 'Case requirements']];
 const OUTCOME_LABEL: Record<string, string> = { accepted: 'Accepted', held: 'Held for review', skipped: 'Skipped' };
 const toLocalInput = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
-const readBase64 = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] ?? ''); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
+export const readBase64 = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] ?? ''); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
 
 export function UploadsPage() {
   const { me, can } = useMe();
   const nav = useNavigate();
   const list = useData<any>('/api/uploads');
+  const [from, setFrom] = useState(new URLSearchParams(window.location.search).get('from') ?? '');
   const [file, setFile] = useState<any>(null);
   const [sheet, setSheet] = useState(''); const [kind, setKind] = useState('');
   const [sug, setSug] = useState<any>(null); const [mapping, setMapping] = useState<Record<string, string | null>>({});
@@ -40,7 +41,7 @@ export function UploadsPage() {
     post('/api/uploads/suggest', { fileId: file.fileId, worksheet: sheet, kind }).then((s) => { setSug(s); setMapping(s.mapping); if (s.saved?.options?.coverage) setCoverage(s.saved.options.coverage); }).catch((e) => setErr(e.message));
   }, [file?.fileId, sheet, kind]);
   const body = () => ({ fileId: file.fileId, worksheet: sheet, kind, headerRow: sug.headerRow, mapping, // Untouched: the workbook's own saved time if it has one, otherwise "now" (decided by the server). Typed: the end of that minute.
-    exportedAt: exportEdited ? new Date(new Date(exportedAt).getTime() + 59_000).toISOString() : (file.modifiedAt ?? null), coverage });
+    exportedAt: exportEdited ? new Date(new Date(exportedAt).getTime() + 59_000).toISOString() : (file.modifiedAt ?? null), coverage, sourceSystem: from || null });
   const run = async (mode: 'preview' | 'commit') => {
     setErr(null); setBusy(true);
     try {
@@ -58,6 +59,7 @@ export function UploadsPage() {
       <Err e={err} />
       {can('upload.run') && <section className="card">
         <h2 style={{ marginTop: 0 }}>1. Choose a file</h2>
+        <label className="field">Exported from<select aria-label="Exported from" value={from} onChange={(e) => { setFrom(e.target.value); setPreview(null); }}><option value="">Not stated</option><option value="redspot">RedSpot</option><option value="salesforce">Salesforce</option><option value="spreadsheet">A spreadsheet we keep</option><option value="other">Another system</option></select></label>
         <input type="file" accept=".xlsx,.xlsm,.csv" aria-label="Spreadsheet file" onChange={(e) => choose(e.target.files?.[0])} />
         {file && <p className="small">{file.filename}{file.duplicate && <> · <strong className="sev-warning">Same contents as a file first uploaded {fmtTime(file.firstUploadedAt)}.</strong> Loading a worksheet that was already loaded returns the original result and changes nothing.</>}</p>}
         {file && <>
@@ -172,7 +174,7 @@ export function UploadRun() {
       <p className="small"><Link to="/uploads">← Load files</Link></p>
       <h1>{r.filename} › {r.worksheet}</h1>
       {sp.get('replayed') && <div className="alert" role="status">This exact file and worksheet were already loaded. Nothing was imported again; this is the original result.</div>}
-      <p className="small">{KINDS.find(([k]) => k === r.kind)?.[1]} · exported <strong>{fmtTime(r.exported_at)}</strong> · uploaded {fmtTime(r.created_at)} by {r.by_name}
+      <p className="small">{KINDS.find(([k]) => k === r.kind)?.[1]}{r.source_system ? ` · from ${r.source_system}` : ''} · exported <strong>{fmtTime(r.exported_at)}</strong> · uploaded {fmtTime(r.created_at)} by {r.by_name}
         {r.kind === 'inventory' && <> · covers {(r.covered_locations ?? []).join(', ') || 'no location'} ({r.coverage === 'complete' ? 'complete list' : 'partial list'})</>}</p>
       <section className="card"><RunResult d={data} onChanged={reload} />
         {heldFixable && can('upload.run') && <p className="small" style={{ marginTop: 10 }}>Fixed something elsewhere (loaded the schedule, verified a conversion)? <button className="secondary" onClick={async () => { await post(`/api/uploads/runs/${id}/recheck`); reload(); }}>Re-check held rows</button> Rows already accepted are never applied twice.</p>}

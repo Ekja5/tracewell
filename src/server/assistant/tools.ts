@@ -181,6 +181,9 @@ export async function computeShortage(db: Db, actx: AssistantCtx, c: any, req: a
     if (!u.allocatable || (u.owner_kind === 'hospital' && u.facility_id !== c.facility_id)) take(remaining, 'notAllocatable', u.owner_kind === 'hospital' ? 'hospital-owned consignment' : `${u.kind} stock is not allocatable`);
     take(remaining, 'available', 'available');
   }
+  // Units already reserved for this case that are on a shipment are not "on hand" anywhere, but they are not missing either.
+  const inTransit = resv.filter((r) => r.case_id === c.id).reduce((a, r) => a + r.qty, 0) - t.reservedThisCase;
+  if (inTransit > 0) { t.reservedThisCase += inTransit; lines.push({ qty: inTransit, bucket: 'reservedThisCase', why: 'reserved for this case and in transit', location: 'In transit', locationCode: 'TRANSIT', stockItemId: null, locationId: null, unit: 'on a shipment' }); }
   const required = req.qty;
   const short = Math.max(0, required - t.reservedThisCase - t.available);
   const needToReserve = Math.max(0, required - t.reservedThisCase);
@@ -189,9 +192,21 @@ export async function computeShortage(db: Db, actx: AssistantCtx, c: any, req: a
   if (t.onHold) parts.push(`${t.onHold} on quality hold`);
   if (t.expiredBeforeUse) parts.push(`${t.expiredBeforeUse} ${t.expiredBeforeUse === 1 ? 'expires' : 'expire'} before use`);
   if (t.notAllocatable) parts.push(`${t.notAllocatable} not allocatable`);
-  if (t.reservedThisCase) parts.push(`${t.reservedThisCase} already reserved for this case`);
+  if (t.reservedThisCase) parts.push(`${t.reservedThisCase} already reserved for this case${inTransit > 0 ? ` (${inTransit} in transit)` : ''}`);
   parts.push(`${t.available} available`, `${required} required`, short ? `short ${short}` : 'not short');
   return { ...t, required, short, needToReserve, sentence: parts.join(', ') + '.', lines, otherCases: [...others].map(([id, ref]) => ({ id, ref })) };
+}
+
+async function workQueueTool(db: Db, actx: AssistantCtx, input: any): Promise<ToolOutput> {
+  const { attentionQueue } = await import('../ops/queue.js'); // loaded here: the queue module itself uses this file's shortage arithmetic
+  const t = typeof input?.before_local_time === 'string' && /^\d{1,2}:\d{2}$/.test(input.before_local_time) ? input.before_local_time : null;
+  const q = await attentionQueue(db, actx, { byLocal: t });
+  const items = q.items.map((i) => ({ priority: i.priority, caseId: i.caseId, caseRef: i.caseRef, facility: i.facility, caseStartLocal: i.caseStartLocal, title: i.title, why: i.why, recommended: i.recommended, deadlineLocal: i.deadlineLocal, minutesLeft: i.minutesLeft, waitingOn: i.waitingOn, owner: i.owner,
+    actions: i.actions.filter((a) => a.href).map((a) => ({ label: a.label, href: a.href, note: a.note ?? null })), link: i.link }));
+  const sources: Source[] = [{ label: 'Needs attention (the full queue, with the actions)', href: '/attention', kind: 'queue' }, ...q.items.filter((i) => i.caseId).slice(0, 8).map((i) => ({ label: `Case ${i.caseRef}`, href: `/cases/${i.caseId}`, kind: 'case' }))];
+  return { card: { type: 'queue', title: q.byLocal ? `To fix before ${q.byLocal}` : 'What needs attention', checkedAt: q.generatedAt, data: { items, counts: q.counts, byLocal: q.byLocal, hiddenLater: q.hiddenLater }, sources: sources.filter((s, i, a) => a.findIndex((x) => x.href === s.href) === i),
+      caveats: ['Ranked by how close the deadline is and how soon the surgery is. Actions that change anything are on the Needs attention page; nothing was changed here.'] },
+    modelData: { before: q.byLocal, counts: q.counts, items: items.map((i) => ({ priority: i.priority, case: i.caseRef, facility: i.facility, title: i.title, why: i.why, safest_fix: i.recommended, act_by: i.deadlineLocal, waiting_on: i.waitingOn })) } };
 }
 
 async function shortageTool(db: Db, actx: AssistantCtx, input: any, conv: ConvContext): Promise<ToolOutput> {
@@ -484,6 +499,9 @@ export const TOOLS: ToolDef[] = [
   { name: 'awaiting_receipt', perm: 'board.view', run: awaitingReceiptTool,
     description: 'Cases where a courier recorded delivery but the hospital has not confirmed receipt, with who at the hospital can confirm.',
     input_schema: { type: 'object', additionalProperties: false, properties: {} } },
+  { name: 'work_queue', perm: 'attention.view', run: workQueueTool,
+    description: "The ranked operations work queue: what needs fixing, most urgent first (critical / high / medium), each with why it is a problem, the safest fix on record and who it is waiting on. Use for 'what do I need to fix / what needs my attention / what should I work on', optionally before a local time today.",
+    input_schema: { type: 'object', additionalProperties: false, properties: { before_local_time: { type: 'string', description: "24h local time like '15:00' for 'before 3 today'; omit for everything" } } } },
   { name: 'call_list', perm: 'board.view', run: callList,
     description: "List the calls to make: open readiness issues for the user's cases on a given day whose act-by time is before a local time today. Ordered by latest time to act; past deadlines listed separately; includes the responsible person or 'Unassigned'.",
     input_schema: { type: 'object', additionalProperties: false, properties: { day: { type: 'string', enum: ['today', 'tomorrow', 'upcoming'], description: "Which cases: 'upcoming' = today's and tomorrow's" }, act_before_local_time: { type: 'string', description: "24h local time like '15:00' for 'before 3 today'; omit for no cutoff" } } } },

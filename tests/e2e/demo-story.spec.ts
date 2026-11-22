@@ -12,6 +12,8 @@ async function as(browser: Browser, email: string, opts: any = {}): Promise<{ pa
   await page.goto('/login');
   await page.click(`button[data-email="${email}"]`);
   await expect(page.locator('header.top')).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  if (/\/attention$/.test(page.url())) await page.goto('/board'); // managers now land on the work queue; these stories start from the readiness board
   return { page, close: () => ctx.close() };
 }
 const caseLink = (p: Page, ref: string) => p.locator(`section[data-case="${ref}"] a`).first();
@@ -45,10 +47,21 @@ test('2. Ops runs exact-item rescue: closer units excluded with reasons; reserve
   await expect(eligible).toContainText('INS-0002');
   await expect(eligible).toContainText('Jordan Ames trunk stock');
   await expect(page.getByText('estimates entered for each route').first()).toBeVisible();
-  await eligible.getByRole('button', { name: 'Preview transfer' }).click();
+  await eligible.getByRole('button', { name: 'Request transfer' }).click();
   await expect(page.locator('dialog')).toContainText('Affected cases');
   await expect(page.locator('dialog')).toContainText('SYN-1001');
-  await page.getByRole('button', { name: 'Reserve and create transfer' }).click();
+  // A transfer is a request with an owner, a pickup plan and a receiver; nothing moves until the holder accepts.
+  await expect(page.getByLabel('Who collects it')).toHaveValue('Jordan Ames');
+  await page.getByRole('button', { name: 'Reserve & request transfer' }).click();
+  await expect(page.locator('h1')).toContainText('TR-0001');
+  await expect(page.locator('[data-testid=transfer]')).toHaveAttribute('data-status', 'Requested');
+  await expect(page.getByText('Waiting on: Jordan Ames')).toBeVisible();
+  await page.getByRole('button', { name: /Accept/ }).click();
+  await expect(page.getByRole('alert')).toContainText('Say how they agreed');
+  await page.getByLabel('Decision note').fill('Jordan confirmed by phone');
+  await page.getByRole('button', { name: /Accept/ }).click();
+  await expect(page.locator('[data-testid=transfer]')).toHaveAttribute('data-status', 'Reserved');
+  await page.getByRole('link', { name: /XFR-/ }).first().click();
   await expect(page.locator('h1')).toContainText('XFR-');
   xfrUrl = page.url();
   await page.goto(caseUrl);

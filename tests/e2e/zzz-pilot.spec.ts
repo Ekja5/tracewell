@@ -29,6 +29,8 @@ async function as(browser: Browser, email: string, opts: any = {}): Promise<{ pa
   await page.goto('/login');
   await page.click(`button[data-email="${email}"]`);
   await expect(page.locator('header.top')).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  if (/\/attention$/.test(page.url())) await page.goto('/board'); // managers now land on the work queue; these stories start from the readiness board
   return { page, close: () => ctx.close() };
 }
 const panel = (page: Page) => page.getByRole('dialog', { name: 'Ask operations' });

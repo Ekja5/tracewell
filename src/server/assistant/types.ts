@@ -8,7 +8,7 @@ export interface Source { label: string; href: string; kind: string }
  * it can only choose which tool to call. Facts and links are therefore independent of phrasing.
  */
 export interface Card {
-  type: 'call_list' | 'readiness' | 'shortage' | 'availability' | 'impact' | 'history' | 'draft' | 'notice' | 'choice' | 'changes' | 'awaiting';
+  type: 'call_list' | 'readiness' | 'shortage' | 'availability' | 'impact' | 'history' | 'draft' | 'notice' | 'choice' | 'changes' | 'awaiting' | 'queue';
   title: string;
   checkedAt: string;
   data: any;

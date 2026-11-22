@@ -1,8 +1,9 @@
-import React, { useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useData, useMe, Err } from '../App';
 import { fmtTime, money, post, uuid, api } from '../lib/api';
 import { EvidenceBadge } from './FindItem';
+import { TransferRequestForm } from './Command';
 
 export function Rescue() {
   const { id, reqId } = useParams();
@@ -15,6 +16,13 @@ export function Rescue() {
   const [busy, setBusy] = useState(false);
   const key = useRef(uuid());
   const dlg = useRef<HTMLDialogElement>(null);
+  const [sp] = useSearchParams();
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!data || opened.current || !sp.get('unit')) return;
+    const e = data.eligible.find((x: any) => x.stockItemId === sp.get('unit') && x.locationId === sp.get('loc'));
+    opened.current = true; if (e) doPreview(e);
+  }, [data]);
   if (error) return <Err e={error} />;
   if (!data) return <p>Searching every location for the exact item…</p>;
   const tz = data.case.timezone;
@@ -51,7 +59,7 @@ export function Rescue() {
             <td>{fmtTime(e.estimatedArrival, tz)}{e.arrivalNote && <div className="small sev-warning">{e.arrivalNote}</div>}</td><td>{e.meetsCutoff ? <span className="badge st-ready">Yes</span> : <span className="badge st-blocked">No</span>}{e.warning && <div className="small sev-warning">{e.warning}</div>}</td>
             <td className="small"><EvidenceBadge e={e.evidence} /></td>
             <td>{money(e.incrementalCostCents)}<div className="small muted">estimate</div></td>
-            <td>{can('rescue.reserve') && <button onClick={() => doPreview(e)}>Preview transfer</button>}</td>
+            <td>{can('transfer.request') && <button onClick={() => doPreview(e)}>Request transfer</button>}</td>
           </tr>))}
           {!data.eligible.length && <tr><td colSpan={11}><strong>No eligible unit of this exact item exists.</strong> Escalate to ops; the system will not suggest a clinical substitute.</td></tr>}
         </tbody></table></div>
@@ -66,13 +74,15 @@ export function Rescue() {
           </tr>))}</tbody></table></div>
       <dialog ref={dlg} aria-labelledby="pv-title">
         {preview && <>
-          <h2 id="pv-title">Preview: reserve {preview.candidate.label} and create transfer</h2>
+          <h2 id="pv-title">Reserve {preview.candidate.label} and request the transfer</h2>
           <p>From <strong>{preview.source.name}</strong> ({preview.source.kind}) to {data.case.facility}. Estimated arrival {fmtTime(preview.candidate.estimatedArrival, tz)} vs required by {fmtTime(preview.requiredBy, tz)}.</p>
           <h3>Affected cases</h3>
           <ul>{preview.affectedCases.map((a: any, i: number) => <li key={i}><strong>{a.caseRef}</strong>: {a.effect}</li>)}</ul>
           <p className="small"><EvidenceBadge e={preview.candidate.evidence} /></p>
-          <p className="small muted">Availability is rechecked when you confirm. Reservation and transfer are created together in one transaction; if someone else reserves this unit first, nothing is created and you are shown the next option.</p>
-          <div className="row"><button disabled={busy} onClick={confirm}>Reserve and create transfer</button><button className="secondary" onClick={() => dlg.current?.close()}>Cancel</button></div>
+          <TransferRequestForm key={preview.e.stockItemId + preview.e.locationId} caseId={id!} reqId={reqId!} preview={preview} facility={data.case.facility}
+            onDone={(r) => { dlg.current?.close(); nav(r.onSite ? `/cases/${id}` : `/transfers/${r.id}`); }}
+            onConflict={async (m) => { dlg.current?.close(); setConflict(m); try { setData(await api(`/api/cases/${id}/rescue/${reqId}`)); } catch { /* keep old list */ } }}
+            onCancel={() => dlg.current?.close()} />
         </>}
       </dialog>
     </div>

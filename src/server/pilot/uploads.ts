@@ -27,36 +27,38 @@ export interface FieldDef { name: string; label: string; required: boolean; help
 
 export const FIELDS: Record<UploadKind, FieldDef[]> = {
   inventory: [
-    { name: 'location', label: 'Location', required: true, help: 'Where the stock is: warehouse, consignment location, or facility name', synonyms: ['location', 'loc', 'site', 'warehouse', 'bin location', 'stock location', 'facility'] },
+    { name: 'location', label: 'Location', required: true, help: 'Where the stock is: warehouse, consignment location, or facility name', synonyms: ['location name', 'inventory location', 'storage location', 'territory', 'location', 'loc', 'site', 'warehouse', 'bin location', 'stock location', 'facility'] },
     { name: 'manufacturer', label: 'Manufacturer', required: false, help: 'Needed when a catalog number is new or shared by two manufacturers', synonyms: ['manufacturer', 'mfr', 'mfg', 'vendor', 'supplier', 'brand'] },
-    { name: 'catalog_number', label: 'Catalog number', required: true, help: 'Exact catalog/reference number, kept as text (leading zeros matter)', synonyms: ['catalog number', 'catalog no', 'catalog', 'cat no', 'ref', 'reference', 'item number', 'item no', 'part number', 'part no', 'sku', 'item'] },
-    { name: 'description', label: 'Description', required: false, help: 'Used when the item is new', synonyms: ['description', 'desc', 'item description', 'name', 'product'] },
+    { name: 'catalog_number', label: 'Catalog number', required: true, help: 'Exact catalog/reference number, kept as text (leading zeros matter)', synonyms: ['product code', 'item code', 'material', 'material number', 'product number', 'catalog number', 'catalog no', 'catalog', 'cat no', 'ref', 'reference', 'item number', 'item no', 'part number', 'part no', 'sku', 'item'] },
+    { name: 'description', label: 'Description', required: false, help: 'Used when the item is new', synonyms: ['product name', 'item name', 'product description', 'description', 'desc', 'item description', 'name', 'product'] },
     { name: 'lot', label: 'Lot', required: false, help: 'Lot/batch number', synonyms: ['lot', 'lot number', 'lot no', 'batch'] },
     { name: 'serial', label: 'Serial', required: false, help: 'Serial number, for serialized units', synonyms: ['serial', 'serial number', 'serial no', 'sn'] },
     { name: 'expiry', label: 'Expiry date', required: false, help: 'Expiration date', synonyms: ['expiry', 'expiration', 'expiration date', 'exp date', 'exp', 'use by'] },
-    { name: 'quantity', label: 'Quantity on hand', required: true, help: 'Whole number', synonyms: ['quantity', 'qty', 'on hand', 'qty on hand', 'quantity on hand', 'qoh', 'count', 'balance'] },
+    { name: 'quantity', label: 'Quantity on hand', required: true, help: 'Whole number', synonyms: ['quantity on hand', 'available quantity', 'qty available', 'current qty', 'quantity', 'qty', 'on hand', 'qty on hand', 'quantity on hand', 'qoh', 'count', 'balance'] },
     { name: 'uom', label: 'Unit of measure', required: false, help: 'EA for single units; BX/PK need a verified conversion', synonyms: ['uom', 'unit', 'unit of measure', 'um', 'units'] },
     { name: 'units_per_package', label: 'Units per box/pack', required: false, help: 'How many single units one box holds, if your file has it', synonyms: ['units per box', 'units per pack', 'units per package', 'pack size', 'box qty', 'per box', 'each per'] },
   ],
   schedule: [
-    { name: 'case_id', label: 'Case ID', required: true, help: 'Your scheduling reference (not a patient identifier)', synonyms: ['case id', 'case', 'case number', 'case no', 'case ref', 'booking', 'booking id', 'surgery id'] },
-    { name: 'facility', label: 'Facility', required: true, help: 'Hospital or surgery center name', synonyms: ['facility', 'hospital', 'site', 'location', 'account'] },
-    { name: 'date', label: 'Surgery date', required: true, help: 'Date in the facility\'s local calendar', synonyms: ['date', 'surgery date', 'case date', 'procedure date', 'dos', 'start', 'start date', 'scheduled'] },
+    { name: 'case_id', label: 'Case ID', required: true, help: 'Your scheduling reference (not a patient identifier)', synonyms: ['order number', 'order no', 'order id', 'event id', 'case number', 'case id', 'case', 'case number', 'case no', 'case ref', 'booking', 'booking id', 'surgery id'] },
+    { name: 'facility', label: 'Facility', required: true, help: 'Hospital or surgery center name', synonyms: ['account name', 'hospital name', 'customer', 'customer name', 'ship to', 'facility', 'hospital', 'site', 'location', 'account'] },
+    { name: 'date', label: 'Surgery date', required: true, help: 'Date in the facility\'s local calendar', synonyms: ['start date time', 'start datetime', 'activity date', 'due date', 'surgery date time', 'date of surgery', 'date', 'surgery date', 'case date', 'procedure date', 'dos', 'start', 'start date', 'scheduled'] },
     { name: 'time', label: 'Start time', required: false, help: 'Local start time at the facility (may be in the date column)', synonyms: ['time', 'start time', 'case time', 'surgery time', 'or time'] },
-    { name: 'procedure', label: 'Procedure', required: false, help: '', synonyms: ['procedure', 'procedure name', 'surgery', 'operation'] },
+    { name: 'procedure', label: 'Procedure', required: false, help: '', synonyms: ['subject', 'procedure type', 'procedure', 'procedure name', 'surgery', 'operation'] },
     { name: 'surgeon', label: 'Surgeon', required: false, help: 'Surgeon code or name', synonyms: ['surgeon', 'doctor', 'physician', 'dr'] },
-    { name: 'rep', label: 'Rep', required: false, help: 'Your representative covering the case', synonyms: ['rep', 'sales rep', 'representative', 'covering rep', 'owner'] },
+    { name: 'rep', label: 'Rep', required: false, help: 'Your representative covering the case', synonyms: ['assigned to', 'owner name', 'case owner', 'account owner', 'agent', 'rep', 'sales rep', 'representative', 'covering rep', 'owner'] },
     { name: 'status', label: 'Status', required: false, help: '"Cancelled" cancels the case', synonyms: ['status', 'case status'] },
+    { name: 'previous_id', label: 'ID in your previous system', required: false, help: 'Optional. Kept on the case so people can still search by the number they know', synonyms: ['record id', 'salesforce id', 'sf id', 'case record id', 'event record id', 'external id', 'legacy id', 'previous id', 'old id'] },
   ],
   requirements: [
-    { name: 'case_id', label: 'Case ID', required: true, help: 'Must match a case from the schedule', synonyms: ['case id', 'case', 'case number', 'case no', 'case ref', 'booking', 'booking id', 'surgery id'] },
+    { name: 'case_id', label: 'Case ID', required: true, help: 'Must match a case from the schedule', synonyms: ['order number', 'order no', 'order id', 'event id', 'case number', 'work order', 'case id', 'case', 'case number', 'case no', 'case ref', 'booking', 'booking id', 'surgery id'] },
     { name: 'manufacturer', label: 'Manufacturer', required: false, help: 'Needed when a catalog number is new or shared', synonyms: ['manufacturer', 'mfr', 'mfg', 'vendor', 'supplier', 'brand'] },
-    { name: 'catalog_number', label: 'Catalog number', required: true, help: 'Exact item required', synonyms: ['catalog number', 'catalog no', 'catalog', 'cat no', 'ref', 'reference', 'item number', 'item no', 'part number', 'part no', 'sku', 'item'] },
+    { name: 'catalog_number', label: 'Catalog number', required: true, help: 'Exact item required', synonyms: ['product code', 'item code', 'product required', 'material', 'product number', 'catalog number', 'catalog no', 'catalog', 'cat no', 'ref', 'reference', 'item number', 'item no', 'part number', 'part no', 'sku', 'item'] },
     { name: 'description', label: 'Description', required: false, help: '', synonyms: ['description', 'desc', 'item description', 'name', 'product'] },
-    { name: 'quantity', label: 'Quantity required', required: true, help: 'Whole number', synonyms: ['quantity', 'qty', 'qty required', 'required', 'quantity required', 'needed', 'qty needed'] },
+    { name: 'quantity', label: 'Quantity required', required: true, help: 'Whole number', synonyms: ['quantity required', 'order qty', 'order quantity', 'qty ordered', 'quantity', 'qty', 'qty required', 'required', 'quantity required', 'needed', 'qty needed'] },
     { name: 'uom', label: 'Unit of measure', required: false, help: '', synonyms: ['uom', 'unit', 'unit of measure', 'um'] },
   ],
 };
+export const SOURCE_SYSTEMS: Record<string, string> = { redspot: 'RedSpot', salesforce: 'Salesforce', spreadsheet: 'Spreadsheet', other: 'Another system' };
 export const KIND_LABEL: Record<UploadKind, string> = { inventory: 'Inventory balances', schedule: 'Case schedule', requirements: 'Case requirements' };
 const EACH = new Set(['', 'ea', 'each', 'unit', 'units', 'pc', 'pcs', 'piece', 'pieces', 'single', 'eaches']);
 const stripZeros = (s: string) => s.replace(/^0+(?=.)/, '');
@@ -220,7 +222,7 @@ async function resolveQty(db: Db, ctx: Ctx, item: any, qtyText: string, uomText:
 
 // ---------------- the run ----------------
 
-export interface RunInput { fileId: string; worksheet: string; kind: UploadKind; headerRow?: number; mapping: Record<string, string | null>; exportedAt?: string | null; coverage?: 'complete' | 'partial'; saveMapping?: boolean }
+export interface RunInput { fileId: string; worksheet: string; kind: UploadKind; headerRow?: number; mapping: Record<string, string | null>; exportedAt?: string | null; coverage?: 'complete' | 'partial'; saveMapping?: boolean; sourceSystem?: string | null }
 
 export async function runUpload(db: Db, ctx: Ctx, input: RunInput, mode: 'preview' | 'commit') {
   requirePerm(ctx, 'upload.run');
@@ -241,8 +243,8 @@ export async function runUpload(db: Db, ctx: Ctx, input: RunInput, mode: 'previe
   const coverage = input.kind === 'inventory' ? (input.coverage === 'complete' ? 'complete' : 'partial') : null;
 
   await db.query('savepoint upload_run');
-  const run = (await db.query(`insert into upload_runs(tenant_id, file_id, worksheet, kind, mapping, header_row, exported_at, coverage, created_by, created_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
-    [ctx.tenantId, f.id, input.worksheet, input.kind, input.mapping, headerRow, exportedAt.toISOString(), coverage, ctx.userId, nowIso()])).rows[0];
+  const run = (await db.query(`insert into upload_runs(tenant_id, file_id, worksheet, kind, mapping, header_row, exported_at, coverage, created_by, created_at, source_system) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+    [ctx.tenantId, f.id, input.worksheet, input.kind, input.mapping, headerRow, exportedAt.toISOString(), coverage, ctx.userId, nowIso(), SOURCE_SYSTEMS[String(input.sourceSystem ?? '')] ?? null])).rows[0];
   await processRows(db, ctx, run, f, sheet, null);
   if (mode === 'commit' && input.saveMapping !== false) {
     await db.query(`insert into column_mappings(tenant_id, kind, header_signature, worksheet, mapping, options, saved_by, saved_at) values ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -330,7 +332,7 @@ async function processRows(db: Db, ctx: Ctx, run: any, f: any, sheet: Sheet, onl
       const repText = r.get('rep'); let rep: any = null;
       if (repText) { const m = ref.reps.filter((u) => norm(u.display_name) === norm(repText) || u.email.toLowerCase() === repText.toLowerCase() || norm(u.display_name).split(' ')[0] === norm(repText)); if (m.length === 1) rep = m[0]; else r.notes.push(`rep "${repText}" is not a user here; no rep assigned`); }
       const start = zoned(date, time, fac.ok.timezone);
-      r.data = { caseRef, facilityId: fac.ok.id, facilityName: fac.ok.name, timezone: fac.ok.timezone, start: start.toISOString(), startLocal: fmtLocal(start, fac.ok.timezone), procedure: r.get('procedure'), surgeon: r.get('surgeon'), repId: rep?.id ?? null, cancelled: /cancel/i.test(r.get('status')) };
+      r.data = { caseRef, facilityId: fac.ok.id, facilityName: fac.ok.name, timezone: fac.ok.timezone, start: start.toISOString(), startLocal: fmtLocal(start, fac.ok.timezone), procedure: r.get('procedure'), surgeon: r.get('surgeon'), repId: rep?.id ?? null, cancelled: /cancel/i.test(r.get('status')), previousId: r.get('previous_id') || null };
       r.key = caseRef.toLowerCase();
     }
   } else {
@@ -378,6 +380,9 @@ async function processRows(db: Db, ctx: Ctx, run: any, f: any, sheet: Sheet, onl
     if (!active(r.n)) continue;
     if (run.kind === 'schedule') {
       const ex = await maybe(db, `select * from cases where lower(case_ref)=lower($1)`, [d.caseRef]);
+      // Keep the identifier the case had in the system the file came from.
+      const keepId = async (caseId: string, rowId?: string) => { if (d.previousId) await db.query(`insert into external_refs(tenant_id, entity_type, entity_id, system, external_id, upload_row_id) values ($1,'case',$2,$3,$4,$5) on conflict (tenant_id, entity_type, system, external_id) do nothing`, [ctx.tenantId, caseId, run.source_system ?? 'Previous system', d.previousId, rowId ?? null]); };
+      if (ex) await keepId(ex.id);
       const sys: Ctx = { ...ctx, role: 'admin' }; // authorized by upload.run; the audit trail keeps the real user
       if (!ex) {
         if (d.cancelled) { await put(r.n, r.raw, 'skipped', 'cancelled_unknown', `Case ${d.caseRef} is marked cancelled and was never loaded; nothing to do.`, d); continue; }
@@ -386,6 +391,7 @@ async function processRows(db: Db, ctx: Ctx, run: any, f: any, sheet: Sheet, onl
           [ctx.tenantId, d.caseRef, d.facilityId, d.procedure || 'Procedure not provided', d.surgeon || 'Surgeon not provided', d.start, d.repId, ctx.userId, nowIso(), rowId])).rows[0];
         await audit(db, ctx, 'case.create', 'case', c.id, { case_ref: d.caseRef, scheduled_start: d.start, source: src(r.n) }, { caseId: c.id });
         await db.query(`update upload_rows set entity=$2 where id=$1`, [rowId, { caseId: c.id }]);
+        await keepId(c.id, rowId);
       } else if (d.cancelled) {
         if (ex.status === 'cancelled') await put(r.n, r.raw, 'skipped', 'unchanged', `Case ${d.caseRef} is already cancelled.`, d, { caseId: ex.id });
         else { await cancelCase(db, sys, ex.id, { reason: `Marked cancelled in ${src(r.n)}` }); await put(r.n, r.raw, 'accepted', 'case_cancelled', `Case ${d.caseRef} cancelled; its reservations were released.`, d, { caseId: ex.id }); }

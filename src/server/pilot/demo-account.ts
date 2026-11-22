@@ -105,6 +105,7 @@ export async function seedDemoAccount(opts: DemoOpts = {}) {
     ['Northline Central Warehouse', MFR, '00612', 'Femoral component, size 5, right', 'F5R2', exp, '2', 'EA', ''],
     ['Northline Central Warehouse', MFR, '00720', 'Tibial baseplate, size 4', 'B4K1', exp, '3', 'EA', ''],
     ['Northline Central Warehouse', MFR, '00550', 'Patella button, 32 mm', 'P32C', exp, '2', 'EA', ''],
+    ['Northline Central Warehouse', MFR, '00550', 'Patella button, 32 mm', 'P32A', us(addDaysYmd(DAY, 21)), '1', 'EA', ''],
     ['Northline Central Warehouse', MFR, '08810', 'Bone screw, 6.5 mm', 'S65B', exp, '6', 'BX', '5'],
     ['Dana Whitfield trunk stock', MFR, '00233', 'Femoral component, size 4, left', 'F4L3', exp, '1', 'EA', ''],
     ['Dana Whitfield trunk stock', MFR, '00720', 'Tibial baseplate, size 4', 'B4K1', exp, '1', 'EA', ''],
@@ -117,6 +118,7 @@ export async function seedDemoAccount(opts: DemoOpts = {}) {
     ['NL-3023', 'Marlowe Regional Medical Center', us(tomorrow), '1:00 PM', 'Total knee arthroplasty, revision', 'Surgeon S-118', 'Dana Whitfield'],
     ['NL-3024', 'Marlowe Regional Medical Center', us(tomorrow), '2:30 PM', P, 'Surgeon S-104', 'Dana Whitfield'],
     ['NL-3025', 'Harlan Surgery Center', us(tomorrow), '1:00 PM', P, 'Surgeon S-221', 'Chris Okafor'],
+    ['NL-3026', 'Marlowe Regional Medical Center', us(tomorrow), '3:30 PM', P, 'Surgeon S-118', 'Dana Whitfield'],
     ['NL-3030', 'Marlowe Regional Medical Center', us(later1), '8:00 AM', P, 'Surgeon S-118', 'Dana Whitfield'],
     ['NL-3031', 'Harlan Surgery Center', us(later2), '9:00 AM', P, 'Surgeon S-221', 'Chris Okafor'],
   ]);
@@ -127,6 +129,7 @@ export async function seedDemoAccount(opts: DemoOpts = {}) {
     ['NL-3023', MFR, '00233', '', '1', 'EA'],
     ['NL-3024', MFR, '00720', '', '1', 'EA'], ['NL-3024', MFR, '08810', '', '4', 'EA'],
     ['NL-3025', MFR, '00612', '', '1', 'EA'],
+    ['NL-3026', MFR, '00612', '', '2', 'EA'],
     ['NL-3030', MFR, '00417', '', '2', 'EA'], ['NL-3031', MFR, '00417', '', '2', 'EA'],
   ]);
   const runs: Record<string, string> = {};
@@ -199,6 +202,13 @@ export async function seedDemoAccount(opts: DemoOpts = {}) {
   await tx(async (db) => { const qm = await ctx('quality'), q2 = await ctx('quality2'); const it = await one(db, `select id, manufacturer_party_id from catalog_items where ref='00233'`);
     const r = await recall.createRecall(db, qm, { manufacturerPartyId: it.manufacturer_party_id, catalogItemId: it.id, scopeType: 'lot', scopeValues: ['F4L1'], noticeRef: 'CO-FSN-2026-14', description: 'Packaging seal may be incomplete on lot F4L1. Quarantine and return.' });
     await recall.verifyRecall(db, q2, r.id, { confirmScope: ['F4L1'] }); });
+  // How this account plans, its outside loaner source, and the par levels it keeps (all fictional).
+  await tx(async (db) => {
+    await db.query(`insert into ops_settings(tenant_id, planning_window_hours, allocation_rule, loaner_source_name, loaner_transit_hours, loaner_cutoff_local, loaner_timezone, loaner_return_days, expiry_warning_days, updated_by, updated_at)
+       values ($1, 72, 'first_entered', 'Corvid loaner desk', 18, '15:00', $2, 3, 60, $3, $4)`, [T, TZ, ids.ops, now().toISOString()]);
+    const par = async (loc: string, ref: string, n: number) => db.query(`insert into par_levels(tenant_id, location_id, catalog_item_id, par_qty, set_by, set_at) values ($1,$2,(select id from catalog_items where ref=$3),$4,$5,$6)`, [T, loc, ref, n, ids.coordinator, now().toISOString()]);
+    await par(ids.lwh, '00417', 6); await par(ids.lwh, '00233', 4); await par(ids.lwh, '00550', 2); await par(ids.lwh, '00720', 3); await par(ids.lChris, '00417', 1); await par(ids.lDana, '00720', 1);
+  });
   await setClock(zoned(DAY, '09:00', TZ));
   return { tenantId: T, day: DAY, tomorrow };
 }

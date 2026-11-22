@@ -23,7 +23,7 @@ const HANDLING_MIN = 30; // seeded pick/pack/handoff allowance, labeled as an es
  * clinical substitutes are never suggested. Eligible sources are ranked by: meets cutoff,
  * travel time, freshness of last physical verification, incremental cost.
  */
-export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirementId: string) {
+export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirementId: string, opts: { quiet?: boolean } = {}) {
   requirePerm(ctx, 'rescue.search');
   const c = await getVisibleCase(db, ctx, caseId);
   const req = await one(db, `select cr.*, ci.ref, ci.description, ci.item_type, ci.tracking from case_requirements cr join catalog_items ci on ci.id=cr.catalog_item_id where cr.id=$1 and cr.case_id=$2`, [requirementId, caseId]);
@@ -91,7 +91,7 @@ export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirement
   const best = eligible[0];
   excluded.sort((a, b) => (a.travelMinutes ?? 1e9) - (b.travelMinutes ?? 1e9));
   for (const x of excluded) x.closerThanBest = best ? (x.travelMinutes ?? 1e9) < best.travelMinutes : false;
-  await audit(db, ctx, 'rescue.search', 'case_requirement', requirementId, { eligible: eligible.length, excluded: excluded.length }, { caseId });
+  if (!opts.quiet) await audit(db, ctx, 'rescue.search', 'case_requirement', requirementId, { eligible: eligible.length, excluded: excluded.length }, { caseId });
   return {
     case: { id: c.id, caseRef: c.case_ref, facility: c.facility_name, timezone: c.timezone, scheduledStart: c.scheduled_start },
     requirement: { id: req.id, ref: req.ref, description: req.description, itemType: req.item_type, qty: req.qty, reserved: already, needed },
@@ -103,8 +103,8 @@ export async function rescueSearch(db: Db, ctx: Ctx, caseId: string, requirement
 }
 
 /** Which cases would be affected by taking this unit? Shows the destination case plus any other case that could need it. */
-export async function previewTransfer(db: Db, ctx: Ctx, caseId: string, requirementId: string, src: { stockItemId: string; locationId: string; ownerPartyId: string }) {
-  const search = await rescueSearch(db, ctx, caseId, requirementId);
+export async function previewTransfer(db: Db, ctx: Ctx, caseId: string, requirementId: string, src: { stockItemId: string; locationId: string; ownerPartyId: string }, opts: { quiet?: boolean } = {}) {
+  const search = await rescueSearch(db, ctx, caseId, requirementId, opts);
   const cand = search.eligible.find((e) => e.stockItemId === src.stockItemId && e.locationId === src.locationId && e.ownerPartyId === src.ownerPartyId);
   if (!cand) {
     const ex = search.excluded.find((e) => e.stockItemId === src.stockItemId && e.locationId === src.locationId);

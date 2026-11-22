@@ -33,7 +33,9 @@ export async function ensureDemo() {
   if (!reviewMode) return;
   const n = await q(`select to_regclass('public.tenants') t`);
   const empty = !n[0].t || Number((await q(`select count(*) n from tenants`))[0].n) === 0;
-  if (empty) { const r = await restartDemo(); console.log(`[review] demo account built for ${r.day}`); }
+  // A demo built by an earlier version has none of the newer set-up (planning settings, par levels): rebuild it. Feedback is kept.
+  const stale = !empty && await (async () => { const [t] = await q(`select id from tenants order by created_at limit 1`); return (await withTenant(t.id, (db) => db.query(`select count(*)::int n from ops_settings`))).rows[0].n === 0; })();
+  if (empty || stale) { const r = await restartDemo(); console.log(`[review] demo account ${stale ? 'rebuilt for the new version' : 'built'} for ${r.day}`); }
   else await syncPeople();
   console.log(`[review] reviewer sign-in: ${problems.REVIEWER ?? 'active'}; owner sign-in: ${problems.OWNER ?? 'active'}`);
 }

@@ -1,8 +1,9 @@
 import { AppError, Db, maybe, one, rows } from '../db.js';
 import { Ctx, requirePerm } from '../perms.js';
-import { nowIso } from '../clock.js';
+import { now, nowIso } from '../clock.js';
 import { audit, notify, notifyRole, raiseException } from '../audit.js';
-import { applyMovement, locationByKind } from './inventory.js';
+import { applyMovement, locationByKind, lastVerification, AVAILABILITY_SQL } from './inventory.js';
+import { addDaysYmd, localYmd } from '../time.js';
 import { fmtLocal } from './cases.js';
 
 export async function createRecall(db: Db, ctx: Ctx, input: { manufacturerPartyId: string; catalogItemId: string; scopeType: 'lot' | 'serial'; scopeValues: string[]; noticeRef: string; description: string }) {
@@ -100,7 +101,43 @@ export async function recallDetail(db: Db, id: string) {
   const holds = await rows(db, `select h.*, s.serial_number, s.lot_number from quality_holds h join stock_items s on s.id=h.stock_item_id where h.recall_id=$1`, [id]);
   const outstanding = m.inventory.filter((i) => i.location_kind !== 'quarantine' && i.location_kind !== 'returns').reduce((a, i) => a + i.qty, 0);
   const quarantined = m.inventory.filter((i) => i.location_kind === 'quarantine').reduce((a, i) => a + i.qty, 0);
-  return { ...m, tasks, holds, outstandingUnits: outstanding, quarantinedUnits: quarantined };
+  return { ...m, tasks, holds, outstandingUnits: outstanding, quarantinedUnits: quarantined, actionSummary: await actionSummary(db, m, tasks) };
+}
+
+/** What Operations needs first: how many units, how many are physically checked where they sit, which cases are touched, and the actions in order. */
+async function actionSummary(db: Db, m: Awaited<ReturnType<typeof recallMatches>>, tasks: any[]) {
+  const t = now(); const r = m.recall;
+  const live = m.inventory.filter((i) => !['returns', 'missing'].includes(i.location_kind));
+  let checked = 0; const unverified: { label: string; qty: number; why: string }[] = [];
+  for (const i of m.inventory) {
+    const label = `${i.serial_number ? `SN ${i.serial_number}` : `lot ${i.lot_number}`} at ${i.location_name}`;
+    if (i.location_kind === 'in_transit') { unverified.push({ label, qty: i.qty, why: 'in transit' }); continue; }
+    if (i.location_kind === 'missing') { unverified.push({ label, qty: i.qty, why: 'recorded as missing' }); continue; }
+    const v = await lastVerification(db, i.stock_item_id, i.location_id);
+    if (v && !/opening balance/.test(v.kind)) checked += i.qty; else unverified.push({ label, qty: i.qty, why: 'never physically scanned at this location' });
+  }
+  const total = m.inventory.reduce((a, i) => a + i.qty, 0);
+  const upcoming = m.reservations.filter((x) => x.case_status === 'scheduled' && new Date(x.scheduled_start) > t);
+  const cases = [...new Map(upcoming.map((x) => [x.case_id, x])).values()].sort((a, b) => String(a.scheduled_start).localeCompare(String(b.scheduled_start)));
+  const tomorrow = cases.filter((c) => localYmd(new Date(c.scheduled_start), c.timezone) === addDaysYmd(localYmd(t, c.timezone), 1));
+  const today = cases.filter((c) => localYmd(new Date(c.scheduled_start), c.timezone) === localYmd(t, c.timezone));
+  const spare = (await one(db, `select coalesce(sum(greatest(a.on_hand - a.reserved,0)),0)::int n from (${AVAILABILITY_SQL}) a join stock_items s on s.id=a.stock_item_id
+     where s.catalog_item_id=$1 and a.condition='sealed' and a.allocatable and not a.on_hold and not (s.id = any($2))`, [r.catalog_item_id, m.stockItems.map((x) => x.id)])).n;
+  const wh = live.filter((i) => i.location_kind === 'warehouse'), trunk = live.filter((i) => i.location_kind === 'trunk'), hosp = live.filter((i) => ['hospital_receiving', 'hospital_spd', 'consignment'].includes(i.location_kind));
+  const sum = (a: any[]) => a.reduce((x, i) => x + i.qty, 0);
+  const actions: { label: string; detail: string; done: boolean; links: { label: string; href: string }[] }[] = [];
+  if (r.status === 'verified') actions.push({ label: 'Activate the recall', detail: `Places a hold on all ${total} affected unit(s) so none can be reserved, picked or shipped, and creates a task for each holder.`, done: false, links: [] });
+  if (r.status === 'draft') actions.push({ label: 'A second person must verify the scope', detail: 'Nothing is held until the scope is verified and the recall is activated.', done: false, links: [] });
+  if (wh.length) actions.push({ label: `Quarantine ${sum(wh)} warehouse unit(s)`, detail: wh.map((i) => `${i.qty} at ${i.location_name}`).join('; '), done: false, links: [] });
+  if (trunk.length) { const names = [...new Set(trunk.map((i) => i.holder).filter(Boolean))]; actions.push({ label: `Notify ${names.length} rep(s) holding ${sum(trunk)} affected unit(s)`, detail: names.join(', '), done: tasks.some((x) => x.task_type === 'acknowledge_and_quarantine' && x.status !== 'open'), links: [] }); }
+  if (hosp.length) actions.push({ label: `${sum(hosp)} unit(s) are at hospitals`, detail: hosp.map((i) => `${i.qty} at ${i.location_name}`).join('; ') + '. Ask each site to set them aside for return.', done: false, links: [] });
+  if (cases.length) actions.push({ label: `Replace affected inventory on ${cases.length} upcoming case(s)`, detail: `${spare} unit(s) from unaffected lots are free to reserve right now${spare < upcoming.reduce((a, x) => a + x.qty, 0) ? '; that is not enough for every case, so plan transfers or a loaner' : ''}.`, done: false,
+    links: cases.map((c) => ({ label: `${c.case_ref} · ${fmtLocal(c.scheduled_start, c.timezone)} · ${c.facility}`, href: `/cases/${c.case_id}` })) });
+  if (unverified.length) actions.push({ label: `Investigate ${unverified.reduce((a, u) => a + u.qty, 0)} unit(s) without a confirmed location`, detail: unverified.map((u) => `${u.qty} x ${u.label} (${u.why})`).join('; '), done: false, links: [] });
+  if (m.completedUsage.length) actions.push({ label: `Review ${new Set(m.completedUsage.map((u) => u.case_ref)).size} completed case(s) that used affected units`, detail: 'Listed below for the manufacturer follow-up. Usage records are not changed.', done: false, links: [] });
+  return { headline: r.status === 'closed' ? `${r.ref} is closed` : `${r.ref} requires ${r.status === 'active' && !live.length ? 'follow-up' : 'immediate attention'}`,
+    affectedUnits: total, physicallyChecked: checked, needVerification: total - checked, upcomingCases: cases.length, casesToday: today.length, casesTomorrow: tomorrow.length,
+    firstCase: cases[0] ? { caseRef: cases[0].case_ref, whenLocal: fmtLocal(cases[0].scheduled_start, cases[0].timezone), href: `/cases/${cases[0].case_id}` } : null, spareUnaffected: spare, actions };
 }
 
 export async function ackRecallTask(db: Db, ctx: Ctx, taskId: string) {

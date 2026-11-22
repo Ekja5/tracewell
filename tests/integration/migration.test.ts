@@ -37,7 +37,7 @@ afterAll(async () => { await client?.end(); });
 
 describe('Upgrade from the first build', () => {
   it('applies the new migration and preserves every existing record', async () => {
-    expect(admin(`select string_agg(name, ',' order by name) from schema_migrations`, DB)).toBe('001_core.sql,002_ownership_finance_alerts.sql,003_indexes.sql,004_assistant.sql,005_pilot.sql');
+    expect(admin(`select string_agg(name, ',' order by name) from schema_migrations`, DB)).toBe('001_core.sql,002_ownership_finance_alerts.sql,003_indexes.sql,004_assistant.sql,005_pilot.sql,006_command.sql');
     for (const t of TABLES) expect(Number(admin(`select count(*) from ${t}`, DB))).toBe(before[t]);
     // Backfills: price history for old charges; receiving hours for old policies; alert timestamps.
     expect(Number(admin(`select count(*) from charge_events where kind='derived'`, DB))).toBe(before.charges);

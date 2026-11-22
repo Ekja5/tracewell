@@ -1,0 +1,10 @@
+import { pool, q, withTenant } from '../../src/server/db.js';
+import { attentionQueue, requirementBreakdown, allocationView } from '../../src/server/ops/queue.js';
+import { refreshClock } from '../../src/server/clock.js';
+await refreshClock(true);
+const [u] = await q(`select * from users where email='avery.brooks@northline.example'`);
+const ctx: any = { userId: u.id, tenantId: u.tenant_id, role: u.role, facilityId: null, territoryId: null, displayName: u.display_name, tenantTz: 'America/Chicago' };
+const r = await withTenant(u.tenant_id, (db) => attentionQueue(db, ctx, { byLocal: process.argv[2] || null }));
+console.log(r.counts, r.byLocal, 'hidden', r.hiddenLater);
+for (const i of r.items) console.log(`\n[${i.priority}] ${i.caseRef ?? ''} ${i.title}\n  why: ${i.why}\n  fix: ${i.recommended}\n  by: ${i.deadlineLocal} (${i.minutesLeft}) waiting:${i.waitingOn}\n  actions: ${i.actions.map((a: any) => `${a.primary ? '*' : ''}${a.label} [${a.note ?? ''}]`).join(' | ')}`);
+await pool.end();

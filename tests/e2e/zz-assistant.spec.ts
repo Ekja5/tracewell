@@ -20,6 +20,8 @@ async function as(browser: Browser, email: string, opts: any = {}): Promise<{ pa
   await page.goto('/login');
   await page.click(`button[data-email="${email}"]`);
   await expect(page.locator('header.top')).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  if (/\/attention$/.test(page.url())) await page.goto('/board'); // managers now land on the work queue; these stories start from the readiness board
   return { page, close: () => ctx.close() };
 }
 const panel = (page: Page) => page.getByRole('dialog', { name: 'Ask operations' });
@@ -95,7 +97,7 @@ test('desktop: 3 p.m. call list, shortage arithmetic, transfer draft, and the an
   await expect(page.locator('tr', { hasText: 'SYN-1005' })).toHaveCount(1);
 
   // Two manufacturers share a catalog number: the panel asks, then keeps the choice.
-  await page.goto('/');
+  await page.goto('/board');
   await page.getByRole('button', { name: 'Ask operations' }).click();
   await askQ(page, 'Where is NP-PAT-32 available?');
   await expect(panel(page).locator('.ask-choices button')).toHaveCount(2);

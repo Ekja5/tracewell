@@ -20,6 +20,12 @@ export function planDemo(message: string, conv: ConvContext, known: { caseRefs: 
   // Pilot questions about spreadsheet uploads and hospital receipt.
   if (/what changed|what's different|what is different|difference/.test(m) && /upload|file|spreadsheet|workbook|import|sheet/.test(m)) return [{ tool: 'upload_changes', input: {} }];
   if (/confirm(ed)? receipt|acknowledg|check(ed)?[- ]in|(hospital|someone at).*(confirm|receiv|sign)|waiting (on|for) the hospital/.test(m)) return [{ tool: 'awaiting_receipt', input: {} }];
+  if (!/\bcalls?\b/.test(m) && /\bfix\b|needs? (my |our )?attention|priorit|work on|to-?do|what should i|what do i need/.test(m)) {
+    const t = m.match(/(?:before|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/);
+    let hh = t ? Number(t[1]) : null;
+    if (hh != null && (t![3]?.startsWith('p') || (!t![3] && hh < 8))) hh = hh % 12 + 12;
+    return [{ tool: 'work_queue', input: hh != null ? { before_local_time: `${String(hh).padStart(2, '0')}:${t![2] ?? '00'}` } : {} }];
+  }
   if (/\bcalls?\b/.test(m) || /before \d/.test(m)) {
     const t = m.match(/before\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/);
     let hh = t ? Number(t[1]) : null;
@@ -85,6 +91,13 @@ export function demoText(cards: Card[]): string {
         for (const e of d.effects.slice(0, 3)) parts.push(`${e.caseRef} now: ${e.sentence}`);
         if (d.notListed.length) parts.push(`${n(d.notListed.length, 'item')} the system holds ${d.notListed.length === 1 ? 'is' : 'are'} not listed in the latest file; nothing was zeroed.`);
         break;
+      case 'queue': {
+        const k = d.counts;
+        parts.push(d.items.length ? `${n(d.items.length, 'item')}${d.byLocal ? ` to fix before ${d.byLocal}` : ' need attention'}: ${k.critical} critical, ${k.high} high, ${k.medium} medium. In order:` : `Nothing needs fixing${d.byLocal ? ` before ${d.byLocal}` : ''}. ${k.casesReady} of ${k.cases} upcoming cases are ready.`);
+        d.items.slice(0, 5).forEach((i: any, idx: number) => parts.push(`${idx + 1}. ${i.priority.toUpperCase()}${i.caseRef ? ` – ${i.caseRef}` : ''}: ${i.title}. ${i.recommended}${i.deadlineLocal ? ` Act by ${i.deadlineLocal}.` : ''}`));
+        if (d.hiddenLater) parts.push(`${n(d.hiddenLater, 'more item')} can wait until later.`);
+        break;
+      }
       case 'awaiting':
         parts.push(d.entries.map((e: any) => `${e.caseRef} at ${e.facility} (surgery ${e.startLocal}): the courier recorded delivery, but ${e.facility} has not confirmed receipt. ${e.whoCanResolve.length ? `${e.whoCanResolve.join(' or ')} can confirm it` : 'No receiving user is set up there'}${e.actByLocal ? `; needed by ${e.actByLocal}` : ''}.`).join(' '));
         break;
@@ -93,4 +106,4 @@ export function demoText(cards: Card[]): string {
   return parts.join(' ');
 }
 
-export const DEMO_HELP = 'Demo mode understands questions like: "What changed since the previous upload?", "Which case still needs someone at the hospital to confirm receipt?", "Which of tomorrow\'s cases do I need to make calls on before 3 today?", "Why does this case still show short?", "Where can I get one more of this exact item before receiving closes?", "If I move Tray 14 to the urgent case, which other cases would I put at risk?", "What changed since I checked this case yesterday afternoon?", and "Draft the transfer and give me a text I can send Jordan."';
+export const DEMO_HELP = 'Demo mode understands questions like: "What do I need to fix before 3 today?", "What changed since the previous upload?", "Which case still needs someone at the hospital to confirm receipt?", "Which of tomorrow\'s cases do I need to make calls on before 3 today?", "Why does this case still show short?", "Where can I get one more of this exact item before receiving closes?", "If I move Tray 14 to the urgent case, which other cases would I put at risk?", "What changed since I checked this case yesterday afternoon?", and "Draft the transfer and give me a text I can send Jordan."';

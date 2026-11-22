@@ -60,6 +60,7 @@ export async function shortageEvidence(db: Db, actx: AssistantCtx, caseId: strin
   }
   const seen = new Set<string>();
   for (const l of shortage.lines) {
+    if (!l.stockItemId) continue;
     const k = `${l.stockItemId}|${l.locationId}`; if (seen.has(k)) continue; seen.add(k);
     evidence.push(...await unitEvidence(db, actx, l.stockItemId, l.locationId));
   }

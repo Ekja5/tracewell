@@ -8,6 +8,8 @@ import { CaseDetail } from './pages/CaseDetail';
 import { QuickNote } from './pages/QuickNote';
 import { UploadsPage, UploadRun } from './pages/Uploads';
 import { Tomorrow, Reconcile, PilotReview, PilotReport } from './pages/Pilot';
+import { Attention, Transfers, TransferDetail, Loaners, LoanerDetail, ParLevels, Expiring, Allocation, OpsSettings } from './pages/Command';
+import { MoveIn } from './pages/MoveIn';
 import { ReviewGuide, FeedbackList, FeedbackButton } from './pages/Review';
 import { Rescue } from './pages/Rescue';
 import { Shipments, ShipmentDetail, PickQueue } from './pages/Shipments';
@@ -92,7 +94,8 @@ function SyncBar({ me }: { me: Me }) {
 }
 
 const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?: boolean }[] = [
-  { to: '/', label: 'Readiness', perm: 'board.view' },
+  { to: '/attention', label: 'Needs attention', perm: 'attention.view' },
+  { to: '/board', label: 'Readiness', perm: 'board.view' },
   { to: '/tomorrow', label: "Tomorrow's cases", perm: 'board.view' },
   { to: '/feedback', label: 'Feedback received', review: true },
   { to: '/uploads', label: 'Load files', perm: 'upload.view' },
@@ -104,7 +107,12 @@ const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?
   { to: '/cases', label: 'Cases', perm: 'case.manage' },
   { to: '/pick', label: 'Pick queue', perm: 'shipment.pick' },
   { to: '/shipments', label: 'Shipments' },
+  { to: '/transfers', label: 'Transfers', perm: 'attention.view' },
+  { to: '/loaners', label: 'Loaners', perm: 'loaner.view' },
+  { to: '/allocation', label: 'Allocation', perm: 'allocation.run' },
   { to: '/inventory', label: 'Inventory', perm: 'inventory.view' },
+  { to: '/stock/par', label: 'Par levels', perm: 'inventory.view' },
+  { to: '/stock/expiring', label: 'Expiring stock', perm: 'inventory.view' },
   { to: '/import', label: 'Import', perm: 'import.run' },
   { to: '/counts', label: 'Counts', perm: 'count.perform' },
   { to: '/finance', label: 'Finance', perm: 'finance.manage' },
@@ -113,6 +121,8 @@ const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?
   { to: '/exceptions', label: 'Exceptions' },
   { to: '/integrations', label: 'Integrations', perm: 'integration.view' },
   { to: '/metrics', label: 'Scorecard', perm: 'metrics.view' },
+  { to: '/move-in', label: 'Move from another system', perm: 'upload.run' },
+  { to: '/settings/ops', label: 'Settings', perm: 'settings.manage' },
 ];
 
 function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
@@ -128,7 +138,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
   const logout = async () => { await clearForUser(me.user.id).catch(() => {}); localStorage.removeItem('tw-me'); await post('/api/auth/logout').catch(() => {}); location.href = '/login'; };
   const role = me.user.role;
   const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
-  const home = (me as any).reviewMode && role === 'admin' ? '/review' : role === 'warehouse' ? '/pick' : role === 'finance' ? '/finance' : role === 'quality_manager' ? '/quality' : role === 'rep' && narrow ? '/today' : null;
+  const home = (me as any).reviewMode && role === 'admin' ? '/review' : ['ops_manager', 'admin', 'inventory_coordinator'].includes(role) ? '/attention' : role === 'warehouse' ? '/pick' : role === 'finance' ? '/finance' : role === 'quality_manager' ? '/quality' : role === 'rep' && narrow ? '/today' : null;
   return (
     <MeCtx.Provider value={{ me, can, refresh }}>
       <header className="top">
@@ -152,6 +162,17 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
         <main id="main">
           <Routes>
             <Route path="/" element={home && loc.pathname === '/' && !sessionStorage.getItem('tw-board') ? <Navigate to={home} replace /> : <Board />} />
+            <Route path="/board" element={<Board />} />
+            <Route path="/attention" element={<Attention />} />
+            <Route path="/transfers" element={<Transfers />} />
+            <Route path="/transfers/:id" element={<TransferDetail />} />
+            <Route path="/loaners" element={<Loaners />} />
+            <Route path="/loaners/:id" element={<LoanerDetail />} />
+            <Route path="/stock/par" element={<ParLevels />} />
+            <Route path="/stock/expiring" element={<Expiring />} />
+            <Route path="/allocation" element={<Allocation />} />
+            <Route path="/settings/ops" element={<OpsSettings />} />
+            <Route path="/move-in" element={<MoveIn />} />
             <Route path="/today" element={<MobileHome />} />
             <Route path="/cases" element={<Cases />} />
             <Route path="/cases/:id" element={<CaseDetail />} />
@@ -187,7 +208,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/pilot" element={<PilotReview />} />
             <Route path="/pilot/report" element={<PilotReport />} />
             <Route path="/finance/queue" element={<FinanceQueue />} />
-            <Route path="*" element={<p>Page not found. <Link to="/">Go to readiness board</Link></p>} />
+            <Route path="*" element={<p>Page not found. <Link to="/board">Go to readiness board</Link></p>} />
           </Routes>
         </main>
       </div>

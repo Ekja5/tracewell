@@ -176,3 +176,25 @@ tr.out-held td { background:#fffaf0; }
 .fb-box textarea { width:100%; font:inherit; padding:8px; border:1px solid var(--line); border-radius:6px; }
 .fb-box select { font:inherit; padding:6px; }
 .review-steps { list-style:none; padding:0; }
+
+/* Command center */
+ol.queue { list-style:none; padding:0; margin:12px 0; }
+.q-item { border-left:8px solid var(--line); }
+.q-item.q-critical { border-left-color:var(--red); } .q-item.q-high { border-left-color:#d49b19; } .q-item.q-medium { border-left-color:#7d93a5; }
+.q-badge-critical { background:var(--red); color:#fff; } .q-badge-high { background:#8a5a00; color:#fff; } .q-badge-medium { background:#4d6475; color:#fff; }
+.q-title { font-size:1.08rem; font-weight:600; margin-top:4px; }
+.q-why, .q-fix { margin:6px 0; } .q-fix { background:#eef5fb; border:1px solid #c5dcef; border-radius:8px; padding:8px 10px; }
+.q-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-start; margin-top:8px; } .q-action { max-width:340px; }
+.breakdown { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:10px 0; background:#fafbfc; }
+.nums { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+.num { display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:112px; min-height:64px; padding:6px 10px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink); }
+button.num { cursor:pointer; } button.num.on { border-color:var(--brand); box-shadow:inset 0 0 0 2px var(--brand); }
+.num-v { font-size:1.5rem; font-weight:700; line-height:1.1; } .num-l { font-size:.8rem; color:var(--muted); text-align:center; }
+.num.bad { background:#fde2df; border-color:#ef9e96; } .num.bad .num-v { color:var(--red); } .num.good { background:#dcf1e4; border-color:#9ad0ae; }
+.num-detail { border-top:1px solid var(--line); margin-top:8px; padding-top:8px; } ol.opts li { margin-bottom:6px; }
+ol.chain { list-style:none; display:flex; flex-wrap:wrap; gap:6px; padding:0; margin:12px 0; }
+ol.chain li { display:flex; flex-direction:column; padding:6px 12px; border-radius:10px; border:1px solid var(--line); background:#fff; min-width:118px; }
+ol.chain li.done { background:#dcf1e4; border-color:#9ad0ae; } ol.chain li.next { border-color:var(--brand); box-shadow:inset 0 0 0 2px var(--brand); } ol.chain li.ended { background:#fde2df; border-color:#ef9e96; }
+.chain-n { font-weight:600; }
+dl.kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; margin:0; } dl.kv dt { color:var(--muted); } dl.kv dd { margin:0; }
+input.par-in { width:80px; } ol.recall-actions li { margin-bottom:8px; }

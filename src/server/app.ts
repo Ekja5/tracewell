@@ -30,6 +30,11 @@ import * as pilotEval from './pilot/evaluation.js';
 import { tomorrowView, reserveAvailable } from './pilot/tomorrow.js';
 import { SAMPLES, sampleFile } from './pilot/samples.js';
 import * as review from './pilot/review.js';
+import * as opsQueue from './ops/queue.js';
+import * as opsSettings from './ops/settings.js';
+import * as opsTransfers from './ops/transfers.js';
+import * as opsLoaners from './ops/loaners.js';
+import * as opsStock from './ops/stock.js';
 import { AVAILABILITY_SQL, ledgerReconciliation, reverseMovement, reserve } from './domain/inventory.js';
 import { parseScan } from '../shared/gs1.js';
 
@@ -227,6 +232,29 @@ export async function buildApp() {
   r('GET', '/api/reconcile', 'upload.view', async (db, ctx) => reconcile.listDiscrepancies(db, ctx));
   r('POST', '/api/reconcile/:id/decide', 'reconcile.decide', async (db, ctx, req) => reconcile.decide(db, ctx, P(req).id, B(req)));
   r('GET', '/api/tomorrow', 'board.view', async (db, ctx) => tomorrowView(db, await actxOf(db, ctx)));
+  // ---- Operations command center ----
+  r('GET', '/api/attention', 'attention.view', async (db, ctx, req) => opsQueue.attentionQueue(db, await actxOf(db, ctx), { by: Q(req).by ?? null, byLocal: Q(req).byLocal ?? null }));
+  r('GET', '/api/cases/:id/requirements/:reqId/breakdown', 'board.view', async (db, ctx, req) => opsQueue.requirementBreakdown(db, await actxOf(db, ctx), P(req).id, P(req).reqId));
+  r('POST', '/api/reallocate', 'reservation.manage', async (db, ctx, req) => opsQueue.reallocate(db, await actxOf(db, ctx), B(req)));
+  r('GET', '/api/allocation', 'attention.view', async (db, ctx) => opsQueue.allocationView(db, await actxOf(db, ctx)));
+  r('POST', '/api/allocation/apply', 'allocation.run', async (db, ctx) => opsQueue.applyAllocation(db, await actxOf(db, ctx)));
+  r('GET', '/api/settings/ops', 'attention.view', async (db) => ({ settings: await opsSettings.getSettings(db), rules: opsSettings.RULE_LABEL }));
+  r('POST', '/api/settings/ops', 'settings.manage', async (db, ctx, req) => opsSettings.updateSettings(db, ctx, B(req)));
+  r('GET', '/api/transfers', 'attention.view', async (db, ctx, req) => opsTransfers.listTransfers(db, ctx, { open: Q(req).open === '1', caseId: Q(req).caseId }));
+  r('GET', '/api/transfers/:id', 'board.view', async (db, ctx, req) => opsTransfers.transferDetail(db, ctx, P(req).id));
+  r('POST', '/api/cases/:id/rescue/:reqId/request', 'transfer.request', async (db, ctx, req) => opsTransfers.requestTransfer(db, ctx, P(req).id, P(req).reqId, B(req), (await opsSettings.getSettings(db)).planningWindowHours));
+  r('POST', '/api/transfers/:id/decide', 'transfer.decide', async (db, ctx, req) => opsTransfers.decideTransfer(db, ctx, P(req).id, B(req)));
+  r('POST', '/api/transfers/:id/cancel', 'transfer.request', async (db, ctx, req) => opsTransfers.cancelTransfer(db, ctx, P(req).id, B(req)));
+  r('GET', '/api/loaners', 'loaner.view', async (db, ctx, req) => opsLoaners.listLoaners(db, ctx, { open: Q(req).open === '1', caseId: Q(req).caseId }));
+  r('GET', '/api/loaners/:id', 'loaner.view', async (db, ctx, req) => opsLoaners.loanerDetail(db, ctx, P(req).id));
+  r('POST', '/api/loaners', 'loaner.manage', async (db, ctx, req) => opsLoaners.requestLoaner(db, ctx, B(req)));
+  r('POST', '/api/loaners/:id/advance', 'loaner.manage', async (db, ctx, req) => opsLoaners.advanceLoaner(db, ctx, P(req).id, B(req)));
+  r('GET', '/api/stock/par', 'inventory.view', async (db, ctx) => opsStock.parView(db, await actxOf(db, ctx)));
+  r('POST', '/api/stock/par', 'par.manage', async (db, ctx, req) => opsStock.setPar(db, ctx, B(req)));
+  r('POST', '/api/stock/par/import', 'par.manage', async (db, ctx, req) => opsStock.importPars(db, ctx, B(req)));
+  r('GET', '/api/move-in', 'upload.view', async (db, ctx) => opsStock.moveInStatus(db, await actxOf(db, ctx)));
+  r('GET', '/api/stock/expiring', 'inventory.view', async (db, ctx) => opsStock.expiringStock(db, await actxOf(db, ctx)));
+  r('GET', '/api/people', 'attention.view', async (db, ctx) => rows(db, `select id, display_name, role from users where active and facility_id is null and (role <> 'admin' or id=$1) order by display_name`, [ctx.userId]));
   r('POST', '/api/cases/:id/requirements/:reqId/reserve-available', 'reservation.manage', async (db, ctx, req) => reserveAvailable(db, await actxOf(db, ctx), P(req).id, P(req).reqId));
   r('GET', '/api/pilot/review', 'pilot.record', async (db, ctx) => pilotEval.reviewList(db, await actxOf(db, ctx)));
   r('GET', '/api/pilot/report', 'pilot.record', async (db, ctx) => pilotEval.report(db, await actxOf(db, ctx)));
@@ -408,7 +436,7 @@ export async function buildApp() {
     const qy = String(Q(req).q ?? '').trim();
     if (qy.length < 2) return { cases: [], stock: [], catalog: [] };
     const [scope, sp] = caseScope(ctx, 2);
-    const cases = await rows(db, `select c.id, c.case_ref, c.status, c.scheduled_start, f.name facility, f.timezone from cases c join facilities f on f.id=c.facility_id where (c.case_ref ilike $1 or c.procedure ilike '%'||$1||'%') and ${scope} order by c.scheduled_start limit 20`, [qy, ...sp]);
+    const cases = await rows(db, `select c.id, c.case_ref, c.status, c.scheduled_start, f.name facility, f.timezone from cases c join facilities f on f.id=c.facility_id where (c.case_ref ilike $1 or c.procedure ilike '%'||$1||'%' or exists (select 1 from external_refs x where x.entity_type='case' and x.entity_id=c.id and lower(x.external_id)=lower($1))) and ${scope} order by c.scheduled_start limit 20`, [qy, ...sp]);
     if (isFacilityUser(ctx)) {
       const stock = await rows(db, `select a.*, s.serial_number, s.lot_number, s.expiry_date, ci.ref, ci.description from (${AVAILABILITY_SQL}) a join stock_items s on s.id=a.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id
          where a.location_facility_id=$2 and (ci.ref ilike $1 or s.serial_number=$1 or s.lot_number=$1 or ci.unit_gtin=$1)`, [qy, ctx.facilityId]);

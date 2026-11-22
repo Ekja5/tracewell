@@ -82,6 +82,18 @@ export function RecallDetail() {
       <h1>{r.ref} <Status s={r.status} /></h1>
       <p>{r.manufacturer} · device <strong>{r.item_ref}</strong> {r.item_description} · scope {r.scope_type}: <strong>{r.scope_values.join(', ')}</strong> · notice {r.manufacturer_notice_ref}</p>
       <p className="small">{String(r.description).replace(/\.$/, '')}. Entered {fmtTime(r.entered_at)}{r.verified_at ? `, verified ${fmtTime(r.verified_at)}` : ''}{r.activated_at ? `, activated ${fmtTime(r.activated_at)}` : ''}.</p>
+      {data.actionSummary && r.status !== 'closed' && <section className="card recall-sum" data-testid="recall-summary">
+        <h2>{data.actionSummary.headline}</h2>
+        <div className="nums"><div className="num"><span className="num-v">{data.actionSummary.affectedUnits}</span><span className="num-l">affected units identified</span></div>
+          <div className="num good"><span className="num-v">{data.actionSummary.physicallyChecked}</span><span className="num-l">physically checked where they sit</span></div>
+          <div className={`num ${data.actionSummary.needVerification ? 'bad' : ''}`}><span className="num-v">{data.actionSummary.needVerification}</span><span className="num-l">need verification</span></div>
+          <div className={`num ${data.actionSummary.upcomingCases ? 'bad' : ''}`}><span className="num-v">{data.actionSummary.upcomingCases}</span><span className="num-l">upcoming cases hold affected units</span></div></div>
+        {data.actionSummary.firstCase && <p>First affected case: <Link to={data.actionSummary.firstCase.href}>{data.actionSummary.firstCase.caseRef}</Link>, {data.actionSummary.firstCase.whenLocal}. {data.actionSummary.casesToday > 0 && `${data.actionSummary.casesToday} today. `}{data.actionSummary.casesTomorrow > 0 && `${data.actionSummary.casesTomorrow} tomorrow.`}</p>}
+        <h3>Recommended actions</h3>
+        <ol className="recall-actions">{data.actionSummary.actions.map((a: any, i: number) => <li key={i}><strong>{a.label}</strong>{a.done && <span className="badge st-ready"> started</span>}<div className="small">{a.detail}</div>
+          {a.links.length > 0 && <ul className="small">{a.links.map((l: any) => <li key={l.href}><Link to={l.href}>{l.label}</Link></li>)}</ul>}</li>)}</ol>
+        <p className="small muted">Work each one in the sections below. Usage already recorded is never changed.</p>
+      </section>}
       <Err e={err} />
       {r.status === 'draft' && can('recall.manage') && (
         <div className="card"><h2>Second-person verification</h2><p className="small">Re-enter the affected {r.scope_type}s from the manufacturer notice. Must be a different user from the one who entered the recall.</p>

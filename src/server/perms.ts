@@ -45,6 +45,14 @@ export const PERMS: Record<string, Role[]> = {
   'upload.view': ['inventory_coordinator', 'ops_manager', 'scheduler', 'warehouse', 'finance', 'quality_manager'],
   'reconcile.decide': ['inventory_coordinator', 'ops_manager'],
   'pilot.record': ['inventory_coordinator', 'ops_manager'],
+  'attention.view': ['ops_manager', 'inventory_coordinator', 'scheduler', 'rep', 'warehouse', 'quality_manager'],
+  'transfer.request': ['ops_manager', 'rep', 'inventory_coordinator'],
+  'transfer.decide': ['ops_manager', 'warehouse', 'rep', 'inventory_coordinator'],
+  'loaner.manage': ['ops_manager', 'inventory_coordinator'],
+  'loaner.view': ['ops_manager', 'inventory_coordinator', 'rep', 'warehouse', 'scheduler'],
+  'par.manage': ['ops_manager', 'inventory_coordinator'],
+  'settings.manage': ['ops_manager'],
+  'allocation.run': ['ops_manager', 'inventory_coordinator'],
 };
 
 /** Admin inherits every distributor permission but never hospital-only decisions. */

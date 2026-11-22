@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Breakdown } from './Command';
 import { useData, useMe, Status, Err } from '../App';
 import { fmtTime, post } from '../lib/api';
 import { IssueControls, IssueHistory } from '../components/IssueControls';
@@ -7,6 +8,7 @@ import { AskOpsButton } from '../components/AskOps';
 
 export function CaseDetail() {
   const { id } = useParams();
+  const [sp] = useSearchParams();
   const { me, can } = useMe();
   const { data, error, reload } = useData<any>(`/api/cases/${id}`);
   const [msg, setMsg] = useState<string | null>(null);
@@ -63,6 +65,7 @@ export function CaseDetail() {
               <td>{can('rescue.search') && c.status === 'scheduled' && it.reserved < it.qty && <Link className="btn secondary" to={`/cases/${c.id}/rescue/${it.requirementId}`}>Find exact item</Link>}</td>
             </tr>))}</tbody>
         </table></div>
+        {c.status === 'scheduled' && r.items.filter((it: any) => it.mandatory !== false && (it.reserved < it.qty || sp.get('req') === it.requirementId)).map((it: any) => <Breakdown key={it.requirementId + ':' + it.reserved} caseId={c.id} requirementId={it.requirementId} open={it.reserved < it.qty} />)}
         {can('shipment.plan') && c.status === 'scheduled' && <p><button onClick={() => act(() => post(`/api/cases/${c.id}/plan-delivery`), (x) => `${x.created.length} delivery shipment(s) planned.`)}>Plan delivery for reserved items</button></p>}
       </section>
 

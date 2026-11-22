@@ -139,6 +139,11 @@ function CardView({ c, conv, onCards }: { c: Card; conv: string | null; onCards:
         {d.blockers?.length ? <ol className="small">{d.blockers.map((b: any, i: number) => <li key={i}>{b.explanation} <span className="muted">Owner: {b.owner ?? 'Unassigned'}{b.actByLocal ? ` · act by ${b.actByLocal}` : ''}</span></li>)}</ol> : <p className="ok small">No open blockers.</p>}
       </>}
       {c.type === 'changes' && <Changes d={d} />}
+      {c.type === 'queue' && <ol className="ask-queue">{d.items.map((i: any, n: number) => <li key={n} data-priority={i.priority}>
+        <p><span className={`badge q-badge-${i.priority}`}>{i.priority.toUpperCase()}</span> {i.caseId ? <Link to={`/cases/${i.caseId}`}><strong>{i.caseRef}</strong></Link> : null} <strong>{i.title}</strong>{i.deadlineLocal && <span className="small muted"> · act by {i.deadlineLocal}</span>}</p>
+        <p className="small"><strong>Why:</strong> {i.why}</p><p className="small"><strong>Safest fix:</strong> {i.recommended}{i.waitingOn ? ` Waiting on ${i.waitingOn}.` : ''}</p>
+        <p className="small">{i.actions.map((a: any, j: number) => <Link key={j} className="btn secondary" style={{ marginRight: 6 }} to={a.href}>{a.label}</Link>)}</p></li>)}
+        {d.items.length === 0 && <li>Nothing needs fixing{d.byLocal ? ` before ${d.byLocal}` : ''}.</li>}</ol>}
       {c.type === 'awaiting' && <div>{d.entries.map((e: any, i: number) => <div key={i} className="ask-entry" data-await={e.caseRef}>
         <p><Link to={`/cases/${e.caseId}`}><strong>{e.caseRef}</strong></Link> · {e.facility} · surgery {e.startLocal}{e.tomorrow ? ' (tomorrow)' : ''}</p>
         <p className="small">Can confirm receipt: <strong>{e.whoCanResolve.length ? e.whoCanResolve.join(', ') : 'no receiving user set up'}</strong>{e.actByLocal ? ` · needed by ${e.actByLocal}${e.passed ? ' (passed)' : ''}` : ''}</p>
