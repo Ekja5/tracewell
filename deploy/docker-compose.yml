@@ -21,15 +21,12 @@ services:
       REVIEW_MODE: "true"
       DEMO_CLOCK: "true"
       ASSISTANT_MODE: demo
-      FEEDBACK_FILE: /data/feedback.jsonl
-      REVIEWER_EMAIL: ${REVIEWER_EMAIL:?set in .env}
+      REVIEWER_LOGIN: ${REVIEWER_LOGIN:?set in .env}
       REVIEWER_NAME: ${REVIEWER_NAME:?set in .env}
       REVIEWER_PASSWORD: ${REVIEWER_PASSWORD:?set in .env}
-      OWNER_EMAIL: ${OWNER_EMAIL:?set in .env}
+      OWNER_LOGIN: ${OWNER_LOGIN:?set in .env}
       OWNER_NAME: ${OWNER_NAME:?set in .env}
       OWNER_PASSWORD: ${OWNER_PASSWORD:?set in .env}
-    volumes:
-      - feedback:/data
   web:
     image: caddy:2
     restart: unless-stopped
@@ -39,4 +36,4 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
-volumes: { dbdata: {}, feedback: {}, caddydata: {} }
+volumes: { dbdata: {}, caddydata: {} }

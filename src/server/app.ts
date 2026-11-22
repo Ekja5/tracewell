@@ -199,7 +199,7 @@ export async function buildApp() {
   r('POST', '/api/handoff-notes/:id/approve', 'closeout.record', async (db, ctx, req) => notes.approveNote(db, ctx, P(req).id));
 
   // ---------------- Hosted review: feedback and demo restart ----------------
-  app.post('/api/feedback', async (req) => { const ctx = await auth(req); const [u] = await q(`select email from users where id=$1`, [ctx.userId]); return review.addFeedback(ctx, u.email, B(req)); });
+  app.post('/api/feedback', async (req) => { const ctx = await auth(req); const [u] = await q(`select email from users where id=$1`, [ctx.userId]); return await review.addFeedback(ctx, u.email, B(req)); });
   app.get('/api/feedback', async (req) => { const ctx = await auth(req); const [u] = await q(`select email from users where id=$1`, [ctx.userId]); if (!review.canReadFeedback(u.email)) throw new AppError(403, 'forbidden', 'Not permitted'); return review.listFeedback(); });
   // Rebuilds the whole synthetic demo account (review deployments only). Runs outside any request transaction.
   app.post('/api/review/restart', async (req) => { const ctx = await auth(req); if (ctx.role !== 'admin') throw new AppError(403, 'forbidden', 'Not permitted'); const r = await review.restartDemo(); return { ok: true, day: r.day }; });

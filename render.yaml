@@ -1,0 +1,40 @@
+# Render Blueprint: one web service (this repo's Dockerfile) and one managed PostgreSQL database.
+# In Render: New > Blueprint > pick this repository. You are asked for the four values marked sync: false.
+# Written without access to Render's current documentation: if Render reports a problem with this file
+# when you import it, send the message back and it will be corrected.
+databases:
+  - name: tracewell-review-db
+    databaseName: tracewell
+    user: tracewell_app
+    plan: basic-256mb
+services:
+  - type: web
+    name: tracewell-review
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: tracewell-review-db, property: connectionString }
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: REVIEW_MODE
+        value: "true"
+      - key: DEMO_CLOCK
+        value: "true"
+      - key: ASSISTANT_MODE
+        value: demo
+      - key: REVIEWER_LOGIN
+        value: jjsirios@gmail.com
+      - key: REVIEWER_NAME
+        value: Josh
+      - key: REVIEWER_PASSWORD
+        sync: false
+      - key: OWNER_LOGIN
+        value: ekja5
+      - key: OWNER_NAME
+        sync: false
+      - key: OWNER_PASSWORD
+        sync: false

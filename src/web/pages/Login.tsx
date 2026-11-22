@@ -20,7 +20,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
       <p className="muted">Orthopedic case readiness, inventory and case-to-cash pilot. All organizations, people, devices, prices and cases are synthetic.</p>
       <form className="card" onSubmit={submit} aria-label="Sign in">
         <div className="row">
-          <label className="field">Email<input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+          <label className="field">Email or username<input type="text" autoCapitalize="none" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
           <label className="field">Password<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
           <button type="submit" style={{ alignSelf: 'flex-end' }}>Sign in</button>
         </div>
