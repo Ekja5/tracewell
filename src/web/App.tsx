@@ -10,6 +10,7 @@ import { UploadsPage, UploadRun } from './pages/Uploads';
 import { Tomorrow, Reconcile, PilotReview, PilotReport } from './pages/Pilot';
 import { Attention, Transfers, TransferDetail, Loaners, LoanerDetail, ParLevels, Expiring, Allocation, OpsSettings } from './pages/Command';
 import { MoveIn } from './pages/MoveIn';
+import { WhereIsEverything, CaseTracker, RunSheet } from './pages/Visibility';
 import { ReviewGuide, FeedbackList, FeedbackButton } from './pages/Review';
 import { Rescue } from './pages/Rescue';
 import { Shipments, ShipmentDetail, PickQueue } from './pages/Shipments';
@@ -96,6 +97,9 @@ function SyncBar({ me }: { me: Me }) {
 const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?: boolean }[] = [
   { to: '/attention', label: 'Needs attention', perm: 'attention.view' },
   { to: '/board', label: 'Readiness', perm: 'board.view' },
+  { to: '/tracker', label: 'Case tracker', perm: 'attention.view' },
+  { to: '/run-sheet', label: 'Run sheet', perm: 'shipment.pick' },
+  { to: '/stock/where', label: 'Where everything is', perm: 'inventory.view' },
   { to: '/tomorrow', label: "Tomorrow's cases", perm: 'board.view' },
   { to: '/feedback', label: 'Feedback received', review: true },
   { to: '/uploads', label: 'Load files', perm: 'upload.view' },
@@ -173,6 +177,9 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/allocation" element={<Allocation />} />
             <Route path="/settings/ops" element={<OpsSettings />} />
             <Route path="/move-in" element={<MoveIn />} />
+            <Route path="/tracker" element={<CaseTracker />} />
+            <Route path="/run-sheet" element={<RunSheet />} />
+            <Route path="/stock/where" element={<WhereIsEverything />} />
             <Route path="/today" element={<MobileHome />} />
             <Route path="/cases" element={<Cases />} />
             <Route path="/cases/:id" element={<CaseDetail />} />

@@ -252,6 +252,42 @@ describe('Moving in from another system', () => {
   });
 });
 
+describe('Visibility views (fresh demo)', () => {
+  beforeAll(async () => { T = (await seedDemoAccount({ day: '2026-11-23' })).tenantId; app = await httpApp(); });
+  it('where everything is: buckets add up to the ledger, free excludes reserved, and short items come first', async () => {
+    const w = await get(U.ops, '/api/stock/where');
+    const ledger = (await tx((db) => db.query(`select coalesce(sum(b.qty),0)::int n from stock_balances b join locations l on l.id=b.location_id join stock_items s on s.id=b.stock_item_id join catalog_items ci on ci.id=s.catalog_item_id where b.qty>0 and l.kind not in ('consumed','wasted','missing') and ci.item_type<>'instrument'`))).rows[0].n;
+    expect(Object.values(w.totals).reduce((a: number, n: any) => a + n, 0)).toBe(ledger);
+    expect(w.items[0]).toMatchObject({ ref: '00417', total: 5, reserved: 4, free: 1, unreservedDemand: 2, gap: 1 });
+    expect(w.items[0].buckets).toMatchObject({ warehouse: 4, reps: 1 });
+    expect(w.items[0].units.find((u: any) => u.bucket === 'reps')).toMatchObject({ holder: 'Chris Okafor', free: 1 });
+    expect((await (await app.as(U.recvMarlowe)).get('/api/stock/where')).statusCode).toBe(403);
+  });
+  it('case tracker: one stage per case and the thing it is waiting on; hospital staff see only their own cases', async () => {
+    const t = await get(U.ops, '/api/case-tracker');
+    const by = (ref: string) => [...t.upcoming, ...t.recent].find((c: any) => c.caseRef === ref);
+    expect(by('NL-3021')).toMatchObject({ stageName: 'Entered', waitingOn: '2 unit(s) still to reserve', behind: true });
+    expect(by('NL-3022')).toMatchObject({ stageName: 'Shipped', waitingOn: 'Hospital receiving to check the delivery in' });
+    expect(by('NL-3025').stageName).toBe('Checked in at hospital');
+    expect(by('NL-3030')).toMatchObject({ stageName: 'Items reserved', waitingOn: 'Delivery not planned', behind: false });
+    expect(by('NL-3018')).toMatchObject({ past: true, waitingOn: 'Rep to complete the case and record what was used' });
+    const h = await get(U.recvHarlan, '/api/case-tracker');
+    expect([...h.upcoming, ...h.recent].every((c: any) => c.facility === 'Harlan Surgery Center')).toBe(true);
+  });
+  it('run sheet: planned shipments in order of latest safe departure; delivered ones listed as on the road', async () => {
+    const before = await get(U.warehouse, '/api/run-sheet');
+    expect(before.counts).toMatchObject({ toLeave: 0, onTheRoad: 1 });
+    const c30 = (await ids('NL-3030', '00417')).case_id; const c31 = (await ids('NL-3031', '00417')).case_id;
+    for (const c of [c31, c30]) expect((await post(U.coordinator, `/api/cases/${c}/plan-delivery`)).statusCode).toBe(200);
+    const r = await get(U.warehouse, '/api/run-sheet');
+    expect(r.counts.toLeave).toBe(2);
+    const stops = r.toLeave.find((g: any) => g.from === 'Northline Central Warehouse').stops;
+    expect(stops.map((s: any) => s.caseRef)).toEqual(['NL-3030', 'NL-3031']);
+    expect(stops[0]).toMatchObject({ next: 'Pick', travelMinutes: 45, late: false, units: 2 });
+    expect((await get(U.ops, '/api/case-tracker')).upcoming.find((c: any) => c.caseRef === 'NL-3030').waitingOn).toBe('1 shipment(s) not yet picked up');
+  });
+});
+
 describe('Declining a transfer', () => {
   it('releases the unit, records why, and tells the owner', async () => {
     T = (await seedDemoAccount({ day: '2026-11-23' })).tenantId; app = await httpApp();

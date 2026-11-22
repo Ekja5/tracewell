@@ -2,11 +2,11 @@
   "note": "Playwright, machine-paced, assistant in demo mode",
   "buyerQuantity": 7,
   "seconds": {
-    "part1_from_empty_setup": 7.9,
-    "demo_a_board_and_four_questions": 2.6,
-    "demo_b_second_workbook_and_reconcile": 2.7,
+    "part1_from_empty_setup": 7.7,
+    "demo_a_board_and_four_questions": 2.5,
+    "demo_b_second_workbook_and_reconcile": 2.6,
     "demo_c_changed_answer_and_evidence": 2.2,
     "demo_d_reupload_review_report": 2.3,
-    "demo_total": 9.9
+    "demo_total": 9.6
   }
 }

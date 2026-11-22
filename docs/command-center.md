@@ -13,6 +13,10 @@ Operations work them. This pass makes the work queue the home page and puts the 
 | **Loaners** | Requests to the account's outside loaner source, with the last cutoff that still arrives in time, then confirmation, inbound tracking, check-in (stock enters the ledger owned by the manufacturer and is reserved for the case), due-back date and return. Append-only chain of custody. |
 | **Allocation** | Demand against free stock for every item in the window, served in the account's rule order. One button reserves what is free; existing reservations are never taken away. |
 | **Par levels** / **Expiring stock** | Par against usable stock, reservations, case demand in the window and recorded usage; stock expiring inside the warning window with the earliest case that could use it first. |
+| **Case tracker** | Each case from entry to close in seven stages (Entered, Items reserved, Shipped, Checked in at hospital, Surgery done, Usage recorded, Closed) with the one thing it is waiting on. |
+| **Where everything is** | Every unit by where it is now: warehouse, with reps, at hospitals, in transit, quarantine, being returned; reserved against free; items short for the window listed first. |
+| **Run sheet** | What has to leave, grouped by origin, in order of latest safe departure (required-by minus the route's travel estimate). A deadline order, not a distance-optimized route. Printable. |
+| **Whose work** (on the queue) | Filter the queue by owner or by who it is waiting on, with a count per person. |
 | **Recall** | An action summary at the top: units affected, physically checked, needing verification, upcoming cases, and a numbered action list. |
 | **Move from another system** | What to export from RedSpot or Salesforce, where to load it, and where the move stands. |
 | **Settings** | Planning window, allocation rule, loaner source (name, daily cutoff, time zone, transit hours, return days), expiry warning. |

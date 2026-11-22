@@ -48,6 +48,9 @@ export function Attention() {
   const { run, msg, err, busy } = useQueueActions(reload);
   useEffect(() => { const t = setInterval(reload, 60000); return () => clearInterval(t); }, [reload]);
   const k = data?.counts;
+  const [who, setWho] = useState('');
+  const people: Record<string, number> = {}; for (const i of data?.items ?? []) for (const n of new Set([i.owner, i.waitingOn].filter(Boolean))) people[n as string] = (people[n as string] ?? 0) + 1;
+  const shown = (data?.items ?? []).filter((i: any) => !who || i.owner === who || i.waitingOn === who);
   return (
     <div>
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -63,7 +66,10 @@ export function Attention() {
         <span className="small muted"> · {k.casesReady} of {k.cases} upcoming cases are ready · checked {data.generatedAtLocal}{data.byLocal ? ` · showing what is due by ${data.byLocal}` : ''}</span></p>}
       <Err e={error ?? err} />
       {msg && <div className="ok" role="status">{msg}</div>}
-      <ol className="queue">{data?.items.map((i: any, n: number) => (
+      {Object.keys(people).length > 0 && <div className="row tight" role="group" aria-label="Whose work"><span className="small"><strong>Whose:</strong></span>
+        <button className={who === '' ? '' : 'secondary'} aria-pressed={who === ''} onClick={() => setWho('')}>Everyone ({data.items.length})</button>
+        {Object.entries(people).sort((a, b) => b[1] - a[1]).map(([n, c]) => <button key={n} className={who === n ? '' : 'secondary'} aria-pressed={who === n} onClick={() => setWho(n)}>{n} ({c})</button>)}</div>}
+      <ol className="queue">{shown.map((i: any, n: number) => (
         <li key={i.id} className={`card q-item q-${i.priority}`} data-priority={i.priority} data-kind={i.kind} data-case={i.caseRef ?? ''}>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div><span className={`badge q-badge-${i.priority}`}>{n + 1}. {PRI_LABEL[i.priority]}</span> {i.caseId ? <Link to={`/cases/${i.caseId}`}><strong>{i.caseRef}</strong></Link> : null}
