@@ -189,6 +189,8 @@ export async function attentionQueue(db: Db, actx: AssistantCtx, opts: { by?: st
       const below = par.rows.filter((r: any) => r.status === 'below');
       if (below.length) push({ id: 'par', priority: 'medium', kind: 'par', title: `${below.length} item(s) below par`, why: below.slice(0, 3).map((r: any) => `${r.ref} at ${r.location}: ${r.usable} usable against a par of ${r.par}`).join('; '), recommended: 'Replenish to par, or adjust the par if demand has changed.', link: '/stock/par' });
     }
+    if (can(actx, 'inventory.view')) { const o = await one(db, `select coalesce(sum(qty),0)::int n, count(distinct case_id)::int cases, min(created_at) oldest from replenishments where action='replace' and status='open'`);
+      if (o.n) push({ id: 'replace', priority: 'medium', kind: 'replacements', title: `${o.n} replacement unit(s) owed after ${o.cases} finished case(s)`, why: `The oldest has been owed since ${fmtLocal(o.oldest, tz)}. Until they are restocked, on-hand runs below what the contracts expect.`, recommended: 'Order or restock them, then mark them replaced.', link: '/usage' }); }
     if (can(actx, 'upload.view')) { const d = (await one(db, `select count(*)::int n from stock_discrepancies where status='open'`)).n; if (d) push({ id: 'reconcile', priority: 'medium', kind: 'reconcile', title: `${d} spreadsheet difference(s) waiting to be reconciled`, why: 'A newer file and the system disagree about a quantity. Readiness for affected cases is shown as "not confirmed" until someone decides.', recommended: 'Decide each difference.', link: '/reconcile' }); }
   }
   items.sort((a, b) => RANK[a.priority] - RANK[b.priority] || (a.minutesLeft ?? 1e9) - (b.minutesLeft ?? 1e9) || String(a.caseRef).localeCompare(String(b.caseRef)));

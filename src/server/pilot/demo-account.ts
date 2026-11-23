@@ -41,6 +41,8 @@ async function workbook(sheet: string, head: string[], body: string[][]) {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/** Raised whenever the demo's contents change, so a hosted review rebuilds itself on the next deploy. */
+export const DEMO_VERSION = 3;
 export interface DemoOpts {
   day?: string;
   /** Review deployment: named sign-ins with their own passwords; every built-in persona gets an unguessable password. */
@@ -142,6 +144,64 @@ export async function seedDemoAccount(opts: DemoOpts = {}) {
   // Labels carry GS1 identifiers so the phone can scan them.
   await tx(async (db) => { let n = 0; for (const it of await rows(db, `select id from catalog_items order by ref`)) await db.query(`update catalog_items set unit_gtin=$2 where id=$1`, [it.id, gtinWithCheckDigit('0061414' + String(200100 + ++n))]); });
 
+  // ---- Four weeks of finished cases, so usage and consumption have something real to show ----
+  // Each one is recorded through the same services a rep's closeout uses, at the time it happened.
+  const HIST: [string, number, 'mrm' | 'hsc', [string, number, 'implanted' | 'wasted' | 'opened_unused' | 'returned_sealed'][]][] = [
+    ['NL-2961', 20, 'mrm', [['00417', 1, 'implanted'], ['00233', 1, 'implanted'], ['08810', 3, 'implanted']]],
+    ['NL-2964', 18, 'hsc', [['00417', 1, 'implanted'], ['00612', 1, 'implanted'], ['08810', 2, 'implanted'], ['08810', 1, 'wasted']]],
+    ['NL-2970', 15, 'mrm', [['00417', 1, 'implanted'], ['00720', 1, 'implanted']]],
+    ['NL-2975', 13, 'mrm', [['00233', 1, 'implanted'], ['08810', 4, 'implanted']]],
+    ['NL-2981', 11, 'hsc', [['00417', 1, 'implanted'], ['00720', 1, 'implanted'], ['00550', 1, 'implanted']]],
+    ['NL-2988', 8, 'mrm', [['00417', 1, 'implanted'], ['00233', 1, 'implanted'], ['00233', 1, 'opened_unused']]],
+    ['NL-2995', 6, 'hsc', [['00612', 1, 'implanted'], ['08810', 3, 'implanted']]],
+    ['NL-3004', 4, 'mrm', [['00417', 1, 'implanted'], ['00720', 1, 'implanted'], ['08810', 2, 'implanted']]],
+    ['NL-3011', 3, 'hsc', [['00417', 1, 'implanted'], ['00550', 1, 'returned_sealed']]],
+  ];
+  // Fictional contracts and prices for both hospitals, so finished cases price cleanly.
+  await tx(async (db) => {
+    for (const [fid, name] of [[ids.mrm, 'Marlowe Regional implant agreement'], [ids.hsc, 'Harlan Surgery Center implant agreement']]) {
+      const k = (await db.query(`insert into contracts(tenant_id,facility_id,name) values ($1,$2,$3) returning id`, [T, fid, name])).rows[0].id;
+      const v = (await db.query(`insert into contract_versions(tenant_id,contract_id,version,effective_from,approved_by) values ($1,$2,1,'2026-01-01','Account setup') returning id`, [T, k])).rows[0].id;
+      for (const [ref, cents] of [['00417', 92000], ['00233', 318000], ['00612', 318000], ['00720', 205000], ['00550', 64000], ['08810', 7800]] as const)
+        await db.query(`insert into contract_prices(tenant_id,contract_version_id,catalog_item_id,unit_price_cents,price_date) values ($1,$2,(select id from catalog_items where ref=$3),$4,'2026-01-01')`, [T, v, ref, cents]);
+      const rule = (d: string, c: string, r: string, txt: string) => db.query(`insert into contract_rules(tenant_id,contract_version_id,disposition,charge_action,replenish_action,billing_mode,rule_text) values ($1,$2,$3,$4,$5,'bill_and_replace',$6)`, [T, v, d, c, r, txt]);
+      await rule('implanted', 'charge', 'replace', 'Implant placed: bill at contract price and replace.');
+      await rule('wasted', 'charge', 'replace', 'Opened and wasted in the case: billed and replaced.');
+      await rule('opened_unused', 'no_charge', 'replace', 'Opened, not used: no charge; replace.');
+      await rule('damaged', 'no_charge', 'replace', 'Damaged: no charge; replace.');
+      await rule('returned_sealed', 'no_charge', 'none', 'Returned sealed: no charge; back to stock.');
+      await rule('missing', 'review', 'review', 'Missing: finance review.');
+    }
+  });
+  for (const [ref, back, site, lines] of HIST) {
+    let d = DAY; for (let i = 0; i < back; i++) d = prevBiz(d);
+    const tz = site === 'mrm' ? TZ : EAST; const repKey = site === 'mrm' ? 'repDana' : 'repChris'; const recv = site === 'mrm' ? ids.lMrm : ids.lHsc; const rep = await ctx(repKey);
+    await setClock(zoned(prevBiz(d), '14:00', tz));            // the afternoon before: entered, stock checked in at the hospital, reserved
+    const start = zoned(d, '08:00', tz);
+    const need = new Map<string, number>(); for (const [item, n] of lines) need.set(item, (need.get(item) ?? 0) + n);
+    const cid = await tx(async (db) => {
+      const c = (await db.query(`insert into cases(tenant_id, case_ref, facility_id, procedure, surgeon_ref, scheduled_start, status, rep_user_id, created_by, created_at) values ($1,$2,$3,$4,$5,$6,'scheduled',$7,$8,$9) returning id`,
+        [T, ref, site === 'mrm' ? ids.mrm : ids.hsc, P, site === 'mrm' ? 'Surgeon S-104' : 'Surgeon S-221', start.toISOString(), ids[repKey], ids.coordinator, now().toISOString()])).rows[0].id as string;
+      for (const [item, n] of need) {
+        const ci = await one(db, `select id from catalog_items where ref=$1`, [item]);
+        const rq = (await db.query(`insert into case_requirements(tenant_id, case_id, catalog_item_id, qty, mandatory) values ($1,$2,$3,$4,true) returning id`, [T, c, ci.id, n])).rows[0].id;
+        const si = (await db.query(`insert into stock_items(tenant_id, catalog_item_id, lot_number, expiry_date, is_serial, data_source) values ($1,$2,$3,$4,false,'seed') on conflict (tenant_id, catalog_item_id, lot_number) where serial_number is null do update set lot_number=excluded.lot_number returning id`, [T, ci.id, `H${item.slice(-3)}`, addDaysYmd(DAY, 400)])).rows[0].id;
+        await applyMovement(db, coord, { stockItemId: si, qty: n, ownerPartyId: ids.dist, to: { locationId: recv, condition: 'sealed' }, type: 'receipt', reason: `Delivered and checked in for ${ref}`, caseId: c, idempotencyKey: `hist:${ref}:${item}` });
+        const { reserve } = await import('../domain/inventory.js');
+        await reserve(db, coord, { caseId: c, requirementId: rq, stockItemId: si, locationId: recv, ownerPartyId: ids.dist, qty: n });
+      }
+      return c;
+    });
+    await setClock(new Date(start.getTime() + 150 * 60e3));    // after the surgery: the rep records what was used and closes out
+    const { recordUsage, submitCloseout } = await import('../domain/closeout.js');
+    let k = 0;
+    for (const [item, n, disp] of lines) { const r = await tx((db) => recordUsage(db, rep, { clientEventId: `hist:${ref}:${++k}`, caseId: cid, disposition: disp, entryMethod: 'manual', manual: { ref: item, lot: `H${item.slice(-3)}` }, qtyUnits: n })); if (r.status !== 'recorded') throw new Error(`history ${ref} ${item}: ${r.reviewReason}`); }
+    await tx((db) => submitCloseout(db, rep, cid, {}));
+    // Older cases have had their replacements restocked two business days later; the last few are still owed.
+    if (back >= 8) { await setClock(zoned(nextBiz(d, 2), '11:00', TZ)); await tx(async (db) => { const { markReplaced } = await import('../ops/usage.js'); const open = await rows(db, `select id from replenishments where case_id=$1 and status='open' and action='replace'`, [cid]); if (open.length) await markReplaced(db, coord, { ids: open.map((o) => o.id), orderRef: `PO-${ref.slice(3)}` }); }); }
+  }
+  await setClock(zoned(prev, '15:40', TZ));
+
   // Loaner instrument trays (serialized), with an approved manifest.
   const trayIds = await tx(async (db) => {
     const mfr = (await one(db, `select id from parties where kind='manufacturer'`)).id;
@@ -210,5 +270,6 @@ export async function seedDemoAccount(opts: DemoOpts = {}) {
     await par(ids.lwh, '00417', 6); await par(ids.lwh, '00233', 4); await par(ids.lwh, '00550', 2); await par(ids.lwh, '00720', 3); await par(ids.lChris, '00417', 1); await par(ids.lDana, '00720', 1);
   });
   await setClock(zoned(DAY, '09:00', TZ));
+  await q(`insert into system_settings(key,value) values('demo_version',$1) on conflict(key) do update set value=excluded.value`, [JSON.stringify(DEMO_VERSION)]);
   return { tenantId: T, day: DAY, tomorrow };
 }

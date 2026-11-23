@@ -202,3 +202,5 @@ tr.row-bad > td { background:#fff5f4; }
 ol.track { list-style:none; display:flex; gap:3px; padding:0; margin:0; }
 ol.track li { width:22px; height:12px; border-radius:3px; background:#e3e8ed; } ol.track li.done { background:#3b9a5f; } ol.track li.next { background:#fff; box-shadow:inset 0 0 0 2px var(--brand); }
 @media print { header.top, nav#nav, .democlock, button, .fb-btn { display:none !important; } main { padding:0; } }
+.bars { display:flex; align-items:flex-end; gap:10px; height:150px; } .bar-col { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; flex:1; max-width:90px; }
+.bar { width:100%; min-height:2px; background:var(--brand); border-radius:4px 4px 0 0; }

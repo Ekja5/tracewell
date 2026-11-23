@@ -36,6 +36,7 @@ import * as opsTransfers from './ops/transfers.js';
 import * as opsLoaners from './ops/loaners.js';
 import * as opsStock from './ops/stock.js';
 import * as opsVis from './ops/visibility.js';
+import * as opsUsage from './ops/usage.js';
 import { AVAILABILITY_SQL, ledgerReconciliation, reverseMovement, reserve } from './domain/inventory.js';
 import { parseScan } from '../shared/gs1.js';
 
@@ -257,6 +258,8 @@ export async function buildApp() {
   r('GET', '/api/stock/where', 'inventory.view', async (db, ctx) => opsVis.whereIsEverything(db, await actxOf(db, ctx)));
   r('GET', '/api/case-tracker', 'board.view', async (db, ctx) => opsVis.caseTracker(db, ctx));
   r('GET', '/api/run-sheet', 'board.view', async (db, ctx) => opsVis.runSheet(db, await actxOf(db, ctx)));
+  r('GET', '/api/usage-report', 'inventory.view', async (db, ctx, req) => opsUsage.usageReport(db, await actxOf(db, ctx), { days: Number(Q(req).days) }));
+  r('POST', '/api/replenishments/done', 'par.manage', async (db, ctx, req) => opsUsage.markReplaced(db, ctx, B(req)));
   r('GET', '/api/stock/expiring', 'inventory.view', async (db, ctx) => opsStock.expiringStock(db, await actxOf(db, ctx)));
   r('GET', '/api/people', 'attention.view', async (db, ctx) => rows(db, `select id, display_name, role from users where active and facility_id is null and (role <> 'admin' or id=$1) order by display_name`, [ctx.userId]));
   r('POST', '/api/cases/:id/requirements/:reqId/reserve-available', 'reservation.manage', async (db, ctx, req) => reserveAvailable(db, await actxOf(db, ctx), P(req).id, P(req).reqId));

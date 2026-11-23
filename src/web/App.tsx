@@ -11,6 +11,7 @@ import { Tomorrow, Reconcile, PilotReview, PilotReport } from './pages/Pilot';
 import { Attention, Transfers, TransferDetail, Loaners, LoanerDetail, ParLevels, Expiring, Allocation, OpsSettings } from './pages/Command';
 import { MoveIn } from './pages/MoveIn';
 import { WhereIsEverything, CaseTracker, RunSheet } from './pages/Visibility';
+import { UsageReport } from './pages/Usage';
 import { ReviewGuide, FeedbackList, FeedbackButton } from './pages/Review';
 import { Rescue } from './pages/Rescue';
 import { Shipments, ShipmentDetail, PickQueue } from './pages/Shipments';
@@ -117,6 +118,7 @@ const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?
   { to: '/inventory', label: 'Inventory', perm: 'inventory.view' },
   { to: '/stock/par', label: 'Par levels', perm: 'inventory.view' },
   { to: '/stock/expiring', label: 'Expiring stock', perm: 'inventory.view' },
+  { to: '/usage', label: 'Usage and consumption', perm: 'inventory.view' },
   { to: '/import', label: 'Import', perm: 'import.run' },
   { to: '/counts', label: 'Counts', perm: 'count.perform' },
   { to: '/finance', label: 'Finance', perm: 'finance.manage' },
@@ -178,6 +180,7 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/settings/ops" element={<OpsSettings />} />
             <Route path="/move-in" element={<MoveIn />} />
             <Route path="/tracker" element={<CaseTracker />} />
+            <Route path="/usage" element={<UsageReport />} />
             <Route path="/run-sheet" element={<RunSheet />} />
             <Route path="/stock/where" element={<WhereIsEverything />} />
             <Route path="/today" element={<MobileHome />} />

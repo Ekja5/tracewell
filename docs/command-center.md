@@ -17,6 +17,7 @@ Operations work them. This pass makes the work queue the home page and puts the 
 | **Where everything is** | Every unit by where it is now: warehouse, with reps, at hospitals, in transit, quarantine, being returned; reserved against free; items short for the window listed first. |
 | **Run sheet** | What has to leave, grouped by origin, in order of latest safe departure (required-by minus the route's travel estimate). A deadline order, not a distance-optimized route. Printable. |
 | **Whose work** (on the queue) | Filter the queue by owner or by who it is waiting on, with a count per person. |
+| **Usage and consumption** | From closeout records over 30/60/90 days: units used by item, hospital and rep; waste; days between uses; per-week average; weeks of cover; value at contract price (draft charges); replacements owed and average days from use to replaced. The demo carries nine finished cases over four weeks, recorded through the closeout services. |
 | **Recall** | An action summary at the top: units affected, physically checked, needing verification, upcoming cases, and a numbered action list. |
 | **Move from another system** | What to export from RedSpot or Salesforce, where to load it, and where the move stands. |
 | **Settings** | Planning window, allocation rule, loaner source (name, daily cutoff, time zone, transit hours, return days), expiry warning. |

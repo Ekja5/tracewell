@@ -63,7 +63,7 @@ export async function caseTracker(db: Db, ctx: Ctx) {
       (select count(*)::int from usage_events ue where ue.case_id=c.id and ue.status='recorded') usage,
       (select count(*)::int from usage_events ue where ue.case_id=c.id and ue.status='needs_review') usage_review,
       (select coalesce(sum(b.qty),0)::int from stock_balances b join locations l on l.id=b.location_id where l.facility_id=c.facility_id and l.kind in ('hospital_receiving','hospital_spd') and b.qty>0
-         and b.stock_item_id in (select sl.stock_item_id from shipment_lines sl join shipments sh on sh.id=sl.shipment_id where sh.case_id=c.id)) left_at_site,
+         and b.condition='sealed' and b.stock_item_id in (select r.stock_item_id from reservations r where r.case_id=c.id and r.status='released')) left_at_site,
       (select string_agg(ln.ref, ', ') from loaner_requests ln where ln.case_id=c.id and ln.status in ('requested','confirmed','shipped','received')) loaners,
       (select string_agg(tr.ref, ', ') from transfer_requests tr where tr.case_id=c.id and tr.status='requested') transfers
     from cases c join facilities f on f.id=c.facility_id left join users u on u.id=c.rep_user_id
@@ -78,7 +78,7 @@ export async function caseTracker(db: Db, ctx: Ctx) {
     const idx = done.findIndex((d) => !d); const stage = idx === -1 ? STAGES.length - 1 : idx - 1;
     const waiting = idx === -1 ? null : idx === 1 ? (c.reqs === 0 ? 'Requirements have not been loaded' : `${c.need - c.held} unit(s) still to reserve${c.transfers ? ` (${c.transfers} awaiting acceptance)` : ''}${c.loaners ? ` (${c.loaners} on the way)` : ''}`)
       : idx === 2 ? (c.not_left ? `${c.not_left} shipment(s) not yet picked up` : 'Delivery not planned') : idx === 3 ? (c.delivered ? 'Hospital receiving to check the delivery in' : c.on_road ? 'On the road' : 'Not all items are at the hospital')
-      : idx === 4 ? (past ? 'Rep to complete the case and record what was used' : null) : idx === 5 ? (c.usage_review ? `${c.usage_review} usage record(s) need review` : 'Usage to be recorded') : (c.left_at_site ? `${c.left_at_site} unit(s) still at the hospital to bring back` : 'Closeout to finish');
+      : idx === 4 ? (past ? 'Rep to complete the case and record what was used' : null) : idx === 5 ? (c.usage_review ? `${c.usage_review} usage record(s) need review` : 'Usage to be recorded') : (c.left_at_site ? `${c.left_at_site} unit(s) still at the hospital to bring back` : 'Finance to finish billing');
     return { id: c.id, caseRef: c.case_ref, facility: c.facility, rep: c.rep, procedure: c.procedure, startLocal: fmtLocal(c.scheduled_start, c.timezone), enteredLocal: fmtLocal(c.created_at, c.timezone), past, status: c.status,
       stage, stageName: STAGES[stage], steps: STAGES.map((n, i) => ({ name: n, done: done[i] })), waitingOn: waiting, behind: !!waiting && (idx <= 3 ? hoursTo(c.scheduled_start, t) < 24 : past && hoursTo(c.scheduled_start, t) < -24),
       leftAtSite: doneCase ? c.left_at_site : 0, loaners: c.loaners, transfers: c.transfers };

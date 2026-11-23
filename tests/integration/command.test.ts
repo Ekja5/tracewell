@@ -288,6 +288,44 @@ describe('Visibility views (fresh demo)', () => {
   });
 });
 
+describe('Usage and consumption (fresh demo)', () => {
+  beforeAll(async () => { T = (await seedDemoAccount({ day: '2026-11-23' })).tenantId; app = await httpApp(); });
+  it('totals match the recorded usage events and the ledger; finished cases price without exceptions', async () => {
+    const u = await get(U.ops, '/api/usage-report?days=30');
+    const db = (await tx((d) => d.query(`select coalesce(sum(qty_units) filter (where disposition<>'returned_sealed'),0)::int used, count(distinct case_id)::int cases from usage_events where status='recorded'`))).rows[0];
+    expect(u.summary).toMatchObject({ cases: db.cases, unitsUsed: db.used, implanted: 30, wasted: 1, openedUnused: 1, returnedSealed: 1 });
+    expect(u.items.reduce((a: number, r: any) => a + r.used, 0)).toBe(db.used);
+    expect((await tx((d) => d.query(`select coalesce(sum(qty),0)::int n from inventory_movements where movement_type='consume'`))).rows[0].n).toBe(u.summary.implanted + u.summary.wasted); // opened-unused is a condition change, not a consume
+    expect(u.summary.valueCents).toBe((await tx((d) => d.query(`select coalesce(sum(amount_cents),0)::int n from charges`))).rows[0].n);
+    expect((await tx((d) => d.query(`select count(*)::int n from exceptions where status='open' and kind like 'finance%'`))).rows[0].n).toBe(0);
+    const top = u.items[0];
+    expect(top).toMatchObject({ ref: '08810', used: 15, implanted: 14, wasted: 1, cases: 5, usableNow: 30 });
+    expect(top.perWeek).toBe(3.5); expect(top.weeksOfCover).toBe(8.6);
+    expect(u.items.find((r: any) => r.ref === '00417')).toMatchObject({ used: 7, cases: 7, replacementsOwed: 2 });
+    expect(u.hospitals.reduce((a: number, h: any) => a + h.units, 0)).toBe(db.used);
+    expect(u.weeks.reduce((a: number, w: any) => a + w.units, 0)).toBe(db.used);
+    expect((await (await app.as(U.recvMarlowe)).get('/api/usage-report')).statusCode).toBe(403);
+  });
+  it('replacements owed: listed, in the queue, and marking them replaced records who, when and the order', async () => {
+    const u = await get(U.ops, '/api/usage-report');
+    expect(u.summary).toMatchObject({ replacementsOwed: 9, avgDaysToReplace: expect.any(Number) });
+    expect(u.owed).toHaveLength(6);
+    expect((await get(U.ops, '/api/attention')).items.find((i: any) => i.kind === 'replacements').title).toBe('9 replacement unit(s) owed after 3 finished case(s)');
+    expect((await post(U.repDana, '/api/replenishments/done', { ids: [u.owed[0].id] })).statusCode).toBe(403);
+    const r = await post(U.coordinator, '/api/replenishments/done', { ids: u.owed.slice(0, 2).map((o: any) => o.id), orderRef: 'PO-7781' });
+    expect(r.json()).toMatchObject({ marked: 2, remaining: 5 });
+    expect((await post(U.coordinator, '/api/replenishments/done', { ids: [u.owed[0].id] })).json().marked).toBe(0);
+    expect((await tx((d) => d.query(`select count(*)::int n from replenishments where order_ref='PO-7781' and done_by is not null and done_at is not null`))).rows[0].n).toBe(2);
+    const before = (await get(U.ops, '/api/stock/where')).items.find((i: any) => i.ref === '08810').total;
+    expect(before).toBe(30); // marking replaced never adds stock
+  });
+  it('the tracker shows finished cases with usage recorded', async () => {
+    const t = await get(U.ops, '/api/case-tracker');
+    expect(t.recent.find((c: any) => c.caseRef === 'NL-3011')).toMatchObject({ stageName: 'Usage recorded', leftAtSite: 1 });
+    expect(t.toBringBack).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('Declining a transfer', () => {
   it('releases the unit, records why, and tells the owner', async () => {
     T = (await seedDemoAccount({ day: '2026-11-23' })).tenantId; app = await httpApp();
