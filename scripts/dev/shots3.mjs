@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const S = process.argv[2]; const B = 'http://127.0.0.1:3210';
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 900 } });
+const errs = []; p.on('pageerror', (e) => errs.push(String(e)));
+await p.goto(B + '/login'); await p.getByLabel('Email or username').fill('avery.brooks@northline.example'); await p.getByLabel('Password').fill('Pilot-Demo-2026!'); await p.getByRole('button', { name: /sign in/i }).click();
+await p.waitForURL('**/attention'); await p.waitForSelector('.q-item');
+await p.goto(B + '/plan'); await p.waitForTimeout(1500); await p.screenshot({ path: S + '/w1-plan.png', fullPage: true });
+await p.goto(B + '/cases/new'); await p.getByLabel('Hospital').selectOption({ label: 'Marlowe Regional Medical Center' }); await p.getByLabel('Surgery date').fill('2026-11-25'); await p.getByLabel('Procedure').fill('Total knee arthroplasty, primary'); await p.getByLabel('Surgeon code').fill('Surgeon S-104');
+await p.getByLabel('Rep').selectOption({ label: 'Dana Whitfield' }); await p.getByLabel('Item 1').selectOption({ index: 1 }); await p.getByRole('button', { name: 'Add another item' }).click(); await p.getByLabel('Item 2').selectOption({ index: 4 });
+await p.getByRole('button', { name: 'Check stock' }).click(); await p.waitForSelector('[data-testid=entry-check]'); await p.screenshot({ path: S + '/w2-entry.png', fullPage: true });
+await p.getByRole('button', { name: /Save the case/ }).click(); await p.waitForURL(/\/cases\/[0-9a-f-]{36}/); await p.waitForTimeout(800);
+await p.goto(B + '/attention'); await p.waitForSelector('.q-item'); await p.screenshot({ path: S + '/w3-queue.png', fullPage: true });
+console.log('errors', errs); await b.close();

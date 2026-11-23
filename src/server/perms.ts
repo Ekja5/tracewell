@@ -53,6 +53,7 @@ export const PERMS: Record<string, Role[]> = {
   'par.manage': ['ops_manager', 'inventory_coordinator'],
   'settings.manage': ['ops_manager'],
   'allocation.run': ['ops_manager', 'inventory_coordinator'],
+  'case.enter': ['ops_manager', 'scheduler', 'inventory_coordinator'],
 };
 
 /** Admin inherits every distributor permission but never hospital-only decisions. */

@@ -12,6 +12,7 @@ import { Attention, Transfers, TransferDetail, Loaners, LoanerDetail, ParLevels,
 import { MoveIn } from './pages/MoveIn';
 import { WhereIsEverything, CaseTracker, RunSheet } from './pages/Visibility';
 import { UsageReport } from './pages/Usage';
+import { CaseEntry, DemandPlan } from './pages/Plan';
 import { ReviewGuide, FeedbackList, FeedbackButton } from './pages/Review';
 import { Rescue } from './pages/Rescue';
 import { Shipments, ShipmentDetail, PickQueue } from './pages/Shipments';
@@ -98,6 +99,7 @@ function SyncBar({ me }: { me: Me }) {
 const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?: boolean }[] = [
   { to: '/attention', label: 'Needs attention', perm: 'attention.view' },
   { to: '/board', label: 'Readiness', perm: 'board.view' },
+  { to: '/cases/new', label: 'Enter a case', perm: 'case.enter' },
   { to: '/tracker', label: 'Case tracker', perm: 'attention.view' },
   { to: '/run-sheet', label: 'Run sheet', perm: 'shipment.pick' },
   { to: '/stock/where', label: 'Where everything is', perm: 'inventory.view' },
@@ -119,6 +121,7 @@ const NAV: { to: string; label: string; perm?: string; roles?: string[]; review?
   { to: '/stock/par', label: 'Par levels', perm: 'inventory.view' },
   { to: '/stock/expiring', label: 'Expiring stock', perm: 'inventory.view' },
   { to: '/usage', label: 'Usage and consumption', perm: 'inventory.view' },
+  { to: '/plan', label: 'Demand plan', perm: 'inventory.view' },
   { to: '/import', label: 'Import', perm: 'import.run' },
   { to: '/counts', label: 'Counts', perm: 'count.perform' },
   { to: '/finance', label: 'Finance', perm: 'finance.manage' },
@@ -185,7 +188,9 @@ function Shell({ me, refresh }: { me: Me; refresh: () => void }) {
             <Route path="/stock/where" element={<WhereIsEverything />} />
             <Route path="/today" element={<MobileHome />} />
             <Route path="/cases" element={<Cases />} />
+            <Route path="/cases/new" element={<CaseEntry />} />
             <Route path="/cases/:id" element={<CaseDetail />} />
+            <Route path="/plan" element={<DemandPlan />} />
             <Route path="/cases/:id/rescue/:reqId" element={<Rescue />} />
             <Route path="/cases/:id/closeout" element={<Closeout />} />
             <Route path="/cases/:id/handoff" element={<QuickNote />} />

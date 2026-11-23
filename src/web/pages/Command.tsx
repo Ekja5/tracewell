@@ -49,6 +49,7 @@ export function Attention() {
   useEffect(() => { const t = setInterval(reload, 60000); return () => clearInterval(t); }, [reload]);
   const k = data?.counts;
   const [who, setWho] = useState('');
+  const people2 = useData<any[]>(can('issue.assign') ? '/api/people' : null);
   const people: Record<string, number> = {}; for (const i of data?.items ?? []) for (const n of new Set([i.owner, i.waitingOn].filter(Boolean))) people[n as string] = (people[n as string] ?? 0) + 1;
   const shown = (data?.items ?? []).filter((i: any) => !who || i.owner === who || i.waitingOn === who);
   return (
@@ -72,7 +73,7 @@ export function Attention() {
       <ol className="queue">{shown.map((i: any, n: number) => (
         <li key={i.id} className={`card q-item q-${i.priority}`} data-priority={i.priority} data-kind={i.kind} data-case={i.caseRef ?? ''}>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div><span className={`badge q-badge-${i.priority}`}>{n + 1}. {PRI_LABEL[i.priority]}</span> {i.caseId ? <Link to={`/cases/${i.caseId}`}><strong>{i.caseRef}</strong></Link> : null}
+            <div><span className={`badge q-badge-${i.priority}`}>{n + 1}. {PRI_LABEL[i.priority]}</span> {i.caseId ? <Link to={`/cases/${i.caseId}`}><strong>{i.caseRef}</strong></Link> : null}{i.urgent && <span className="badge st-blocked"> URGENT</span>}
               {i.caseRef && <span className="small muted"> · {i.facility}{i.caseStartLocal ? ` · surgery ${i.caseStartLocal}` : ''}</span>}
               <div className="q-title">{i.title}</div></div>
             {i.deadlineLocal && <div className="small" style={{ textAlign: 'right' }}>Act by <strong>{i.deadlineLocal}</strong><div className={i.minutesLeft < 0 ? 'sev-critical' : i.minutesLeft < 240 ? 'sev-warning' : 'muted'}>{left(i.minutesLeft)}</div></div>}
@@ -81,6 +82,9 @@ export function Attention() {
           <p className="q-fix"><strong>Safest fix:</strong> {i.recommended}</p>
           {(i.owner || i.waitingOn) && <p className="small muted">{i.owner && <>Owner: {i.owner}</>}{i.owner && i.waitingOn ? ' · ' : ''}{i.waitingOn && <>Waiting on: <strong>{i.waitingOn}</strong></>}</p>}
           <ActionButtons actions={i.actions} run={run} busy={busy} />
+          {i.caseId && (can('issue.assign') || can('case.enter')) && <div className="row tight q-manage">
+            {i.issueId && can('issue.assign') && <select aria-label={`Assign ${i.caseRef} item to`} value="" onChange={async (e) => { if (!e.target.value) return; try { await post(`/api/issues/${i.issueId}/assign`, { userId: e.target.value }); reload(); } catch (x: any) { alert(x.message); } }}><option value="">Assign to…</option>{(people2.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.display_name}</option>)}</select>}
+            <button className="linkish" onClick={async () => { const reason = window.prompt(i.urgent ? `Clear urgent on ${i.caseRef}? Reason:` : `Mark ${i.caseRef} urgent? It moves up the queue. Reason (shown to the team):`); if (!reason) return; try { await post(`/api/cases/${i.caseId}/urgent`, { urgent: !i.urgent, reason }); reload(); } catch (x: any) { alert(x.message); } }}>{i.urgent ? 'Clear urgent' : 'Mark urgent'}</button></div>}
         </li>))}</ol>
       {data && !data.items.length && <div className="ok">Nothing needs attention{data.byLocal ? ` before ${data.byLocal}` : ''}. {k.casesReady} of {k.cases} upcoming cases are ready.</div>}
       {data?.hiddenLater > 0 && <p className="small muted">{data.hiddenLater} more item(s) are due later. <button className="linkish" onClick={() => setBy('')}>Show everything</button></p>}

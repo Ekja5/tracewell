@@ -326,6 +326,61 @@ describe('Usage and consumption (fresh demo)', () => {
   });
 });
 
+describe('Entering a case, urgency and the demand plan (fresh demo)', () => {
+  let opt: any; const item = (ref: string) => opt.items.find((i: any) => i.ref === ref).id;
+  beforeAll(async () => { T = (await seedDemoAccount({ day: '2026-11-23' })).tenantId; app = await httpApp(); opt = await get(U.ops, '/api/case-entry/options'); });
+  const entry = (over: any = {}) => ({ facilityId: opt.hospitals.find((h: any) => h.name.startsWith('Marlowe')).id, date: '2026-11-25', time: '11:00', procedure: 'Total knee arthroplasty, primary', surgeon: 'Surgeon S-104', repUserId: opt.reps.find((r: any) => r.display_name === 'Dana Whitfield').id, items: [{ catalogItemId: item('00550'), qty: 1 }, { catalogItemId: item('00417'), qty: 1 }], ...over });
+  it('the stock check before saving is the real answer and changes nothing', async () => {
+    const before = (await tx((d) => d.query(`select (select count(*) from cases)::int c, (select count(*) from reservations where status='active')::int r`))).rows[0];
+    const p = (await post(U.ops, '/api/case-entry/preview', entry())).json();
+    expect(p).toMatchObject({ preview: true, covered: false });
+    expect(p.items.find((i: any) => i.ref === '00550')).toMatchObject({ required: 1, reserved: 1, short: 0 });
+    const ins = p.items.find((i: any) => i.ref === '00417');
+    expect(ins).toMatchObject({ required: 1, reserved: 0, short: 1 });
+    expect(ins.message).toContain('Cases ahead of this one under the rule also need it: NL-3021');
+    expect((await tx((d) => d.query(`select (select count(*) from cases)::int c, (select count(*) from reservations where status='active')::int r`))).rows[0]).toEqual(before);
+  });
+  it('saving creates the case, reserves what the check showed, notifies the rep and puts the shortage in the queue', async () => {
+    const r = await post(U.ops, '/api/case-entry', entry({ previousId: 'RS-88120' }));
+    expect(r.statusCode, r.body).toBe(200);
+    const c = r.json(); expect(c.caseRef).toMatch(/^NL-\d+$/);
+    expect((await tx((d) => d.query(`select sum(qty)::int n from reservations where case_id=$1 and status='active'`, [c.caseId]))).rows[0].n).toBe(1);
+    expect((await get(U.ops, '/api/search?q=RS-88120')).cases[0].case_ref).toBe(c.caseRef);
+    const qi = (await get(U.ops, '/api/attention')).items.find((i: any) => i.caseRef === c.caseRef && i.kind === 'uncovered');
+    expect(qi.title).toContain('00417');
+    expect((await tx((d) => d.query(`select count(*)::int n from notifications where message like $1`, [`Case ${c.caseRef} assigned%`]))).rows[0].n).toBe(1);
+    expect((await post(U.ops, '/api/case-entry', entry({ caseRef: c.caseRef }))).statusCode).toBe(409);
+  });
+  it('validates and is limited to the people who schedule', async () => {
+    expect((await post(U.ops, '/api/case-entry/preview', entry({ date: '2026-11-20' }))).statusCode).toBe(400);
+    expect((await post(U.ops, '/api/case-entry/preview', entry({ items: [] }))).statusCode).toBe(400);
+    expect((await post(U.ops, '/api/case-entry/preview', entry({ surgeon: '' }))).statusCode).toBe(400);
+    expect((await post(U.repDana, '/api/case-entry/preview', entry())).statusCode).toBe(403);
+    expect((await post(U.recvMarlowe, '/api/case-entry', entry())).statusCode).toBe(403);
+  });
+  it('marking a case urgent needs a reason, raises it one level in the queue and can be cleared', async () => {
+    const q0 = (await get(U.ops, '/api/attention')).items.find((i: any) => i.caseRef === 'NL-3030');
+    expect(q0).toMatchObject({ priority: 'medium', urgent: false });
+    expect((await post(U.ops, `/api/cases/${q0.caseId}/urgent`, { urgent: true, reason: '' })).statusCode).toBe(400);
+    expect((await post(U.repDana, `/api/cases/${q0.caseId}/urgent`, { urgent: true, reason: 'x' })).statusCode).toBe(403);
+    expect((await post(U.ops, `/api/cases/${q0.caseId}/urgent`, { urgent: true, reason: 'Surgeon moved it up' })).statusCode).toBe(200);
+    expect((await get(U.ops, '/api/attention')).items.find((i: any) => i.caseRef === 'NL-3030')).toMatchObject({ priority: 'high', urgent: true });
+    await post(U.ops, `/api/cases/${q0.caseId}/urgent`, { urgent: false, reason: 'Back to plan' });
+    expect((await get(U.ops, '/api/attention')).items.find((i: any) => i.caseRef === 'NL-3030').priority).toBe('medium');
+  });
+  it('demand plan: each week\'s balance is usable stock minus scheduled demand so far; items that run out come first', async () => {
+    const p = await get(U.ops, '/api/demand-plan?weeks=4');
+    expect(p.weeks).toHaveLength(4);
+    for (const r of p.items) { let bal = r.usable; for (const w of r.weeks) { bal -= w.demand; expect(w.balance).toBe(bal); } expect(r.endBalance).toBe(bal); expect(!!r.shortWeek).toBe(r.weeks.some((w: any) => w.balance < 0)); }
+    const ins = p.items[0];
+    expect(ins.ref).toBe('00417'); expect(ins.shortWeek).toBe('Next week'); expect(ins.weeks.map((w: any) => w.balance)).toEqual([0, -2, -2, -2]); // includes the case entered above
+    expect(ins.weeks[0].cases).toEqual(expect.arrayContaining(['NL-3021', 'NL-3030']));
+    expect(ins.recentPerWeek).toBe(1.6);
+    expect(p.items.find((r: any) => r.ref === '08810')).toMatchObject({ shortWeek: null, usable: 30 });
+    expect((await (await app.as(U.recvMarlowe)).get('/api/demand-plan')).statusCode).toBe(403);
+  });
+});
+
 describe('Declining a transfer', () => {
   it('releases the unit, records why, and tells the owner', async () => {
     T = (await seedDemoAccount({ day: '2026-11-23' })).tenantId; app = await httpApp();

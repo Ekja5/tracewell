@@ -28,7 +28,7 @@ export type Priority = 'critical' | 'high' | 'medium';
 const RANK: Record<Priority, number> = { critical: 0, high: 1, medium: 2 };
 export interface QueueAction { kind: 'reserve' | 'request_transfer' | 'request_loaner' | 'reallocate' | 'plan_delivery' | 'open'; label: string; href?: string; params?: any; note?: string | null; primary?: boolean }
 export interface QueueItem { id: string; priority: Priority; kind: string; caseId: string | null; caseRef: string | null; facility: string | null; caseStartLocal: string | null; title: string; why: string; deadline: string | null; deadlineLocal: string | null; minutesLeft: number | null;
-  owner: string | null; waitingOn: string | null; recommended: string; actions: QueueAction[]; link: string }
+  owner: string | null; waitingOn: string | null; recommended: string; actions: QueueAction[]; link: string; issueId?: string | null; urgent?: boolean }
 
 const TITLE: Record<string, string> = { hold: 'A reserved unit is on quality hold', expired: 'A reserved unit expires before the case', in_transit: 'In transit', delivered_unreceived: 'Delivered, not yet checked in by the hospital', tray_unverified: 'Tray contents not verified', tray_incomplete: 'Tray is missing instruments',
   awaiting_release: 'Waiting on the hospital\'s sterile-processing release', not_released: 'Hospital recorded "not released"', no_requirements: 'No requirements loaded', discrepancy: 'Open delivery discrepancy', stale_feed: 'Case time not reconfirmed' };
@@ -135,6 +135,7 @@ export async function attentionQueue(db: Db, actx: AssistantCtx, opts: { by?: st
   const raw = new Map<string, any>(); for (const c of scheduled) for (const b of c.blockers) raw.set(`${c.id}|${b.key}`, b);
   const enriched = await enrichCases(db, actx, scheduled);
   const items: QueueItem[] = [];
+  const urgentIds = new Set<string>(scheduled.filter((c: any) => c.urgent).map((c: any) => c.id));
   const pendingTr = new Map<string, any>(); if (!isFacilityUser(actx)) for (const tr of await listTransfers(db, actx, { open: true })) if (tr.status === 'requested') pendingTr.set(tr.reservationId, tr);
   for (const c of enriched) {
     const caseRow = { id: c.id, scheduled_start: c.scheduledStart, timezone: c.timezone, facility_id: c.facilityId, case_ref: c.caseRef };
@@ -155,10 +156,11 @@ export async function attentionQueue(db: Db, actx: AssistantCtx, opts: { by?: st
         recommended = `${tr.ref} is requested; nothing moves until ${tr.holder} accepts. Pickup is planned for ${tr.pickupAtLocal} by ${tr.pickupBy}.`; waitingOn = tr.holder; actions = [{ kind: 'open', label: `Open ${tr.ref}`, href: `/transfers/${tr.id}` }];
       } else if (b.code === 'delivered_unreceived') recommended = `Ask ${waitingOn ?? 'hospital receiving'} to check the delivery in.`;
       if (/no shipment planned/.test(b.message) && can(actx, 'shipment.plan') && !(b.key?.startsWith('unit:') && pendingTr.has(b.key.split(':')[1]))) { recommended = 'Plan the delivery so the warehouse can pick it.'; actions = [{ kind: 'plan_delivery', label: 'Plan delivery', params: { caseId: c.id }, primary: true }, ...actions]; }
-      const priority = priorityFor(b.type, deadline, new Date(c.scheduledStart), t, !!waitingOn && b.code === 'uncovered');
+      let priority = priorityFor(b.type, deadline, new Date(c.scheduledStart), t, !!waitingOn && b.code === 'uncovered');
+      if (urgentIds.has(c.id)) priority = priority === 'medium' ? 'high' : 'critical'; // a person marked this case urgent
       items.push({ id: `${c.id}|${b.key}`, priority, kind: b.code, caseId: c.id, caseRef: c.caseRef, facility: c.facility, caseStartLocal: c.startLocal, title: b.shortage ? `${b.shortage.short > 0 ? `Short ${b.shortage.short}` : `${b.shortage.needToReserve} not reserved`}: ${b.shortage.ref} ${b.shortage.description}` : (/no shipment planned/.test(b.message) ? 'Reserved but no delivery planned' : TITLE[b.code] ?? b.typeLabel),
         why: b.detail ?? b.message, deadline: deadline?.toISOString() ?? null, deadlineLocal: deadline ? fmtLocal(deadline, c.timezone) : null, minutesLeft: deadline ? Math.round((deadline.getTime() - t.getTime()) / 60e3) : null,
-        owner: b.owner, waitingOn, recommended, actions, link: b.link });
+        owner: b.owner, waitingOn, recommended, actions, link: b.link, issueId: b.issueId ?? null, urgent: urgentIds.has(c.id) });
     }
   }
   const tz = actx.tenantTz;
@@ -257,7 +259,7 @@ export async function reallocate(db: Db, actx: AssistantCtx, input: { toCaseId: 
 }
 
 /** Demand against supply for every item needed inside the planning window, served in the account's rule order. */
-export async function allocationView(db: Db, actx: AssistantCtx) {
+export async function allocationView(db: Db, actx: AssistantCtx, opts: { until?: Date } = {}) {
   requirePerm(actx, 'attention.view');
   if (isFacilityUser(actx)) throw new AppError(403, 'forbidden', 'Allocation is a distributor view');
   const s = await getSettings(db); const t = now();
@@ -265,7 +267,7 @@ export async function allocationView(db: Db, actx: AssistantCtx) {
        coalesce((select sum(r.qty) from reservations r where r.requirement_id=cr.id and r.status='active'),0)::int reserved
      from case_requirements cr join cases c on c.id=cr.case_id join facilities f on f.id=c.facility_id join catalog_items ci on ci.id=cr.catalog_item_id
      where cr.active and cr.mandatory and c.status='scheduled' and c.scheduled_start between $1 and $2
-     order by ${s.allocationRule === 'first_entered' ? 'c.created_at, c.scheduled_start' : 'c.scheduled_start, c.created_at'}, c.case_ref`, [t.toISOString(), new Date(t.getTime() + s.planningWindowHours * 3600e3).toISOString()]);
+     order by ${s.allocationRule === 'first_entered' ? 'c.created_at, c.scheduled_start' : 'c.scheduled_start, c.created_at'}, c.case_ref`, [t.toISOString(), new Date(Math.max(t.getTime() + s.planningWindowHours * 3600e3, opts.until?.getTime() ?? 0)).toISOString()]);
   const byItem = new Map<string, any[]>(); for (const d of demand) { if (!byItem.has(d.catalog_item_id)) byItem.set(d.catalog_item_id, []); byItem.get(d.catalog_item_id)!.push(d); }
   const items: any[] = [];
   for (const [itemId, list] of byItem) {
@@ -279,7 +281,7 @@ export async function allocationView(db: Db, actx: AssistantCtx) {
       return { order: i + 1, caseId: d.case_id, caseRef: d.case_ref, facility: d.facility, whenLocal: fmtLocal(d.scheduled_start, d.timezone), enteredLocal: fmtLocal(d.created_at, actx.tenantTz), required: d.qty, reserved: d.reserved, wouldGet: gets, uncovered: need - gets, requirementId: d.requirement_id, picks };
     });
     const totalNeed = lines.reduce((a, l) => a + (l.required - l.reserved), 0), free = sup.reduce((a, x) => a + x.free, 0);
-    if (totalNeed > 0) items.push({ ref: list[0].ref, description: list[0].description, required: lines.reduce((a, l) => a + l.required, 0), reserved: lines.reduce((a, l) => a + l.reserved, 0), freeStock: free, conflict: totalNeed > free, uncovered: lines.reduce((a, l) => a + l.uncovered, 0), lines });
+    if (totalNeed > 0) items.push({ catalogItemId: itemId, ref: list[0].ref, description: list[0].description, required: lines.reduce((a, l) => a + l.required, 0), reserved: lines.reduce((a, l) => a + l.reserved, 0), freeStock: free, conflict: totalNeed > free, uncovered: lines.reduce((a, l) => a + l.uncovered, 0), lines });
   }
   items.sort((a, b) => Number(b.conflict) - Number(a.conflict) || a.ref.localeCompare(b.ref));
   return { generatedAt: t.toISOString(), windowHours: s.planningWindowHours, rule: s.allocationRule, ruleLabel: RULE_LABEL[s.allocationRule], items, toReserve: items.reduce((a, i) => a + i.lines.reduce((x: number, l: any) => x + l.wouldGet, 0), 0),

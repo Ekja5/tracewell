@@ -1,7 +1,7 @@
 {
   "mode": "demo",
   "modelCalls": "none (deterministic demo planner)",
-  "ranAt": "2026-11-23T00:22:26.401Z",
+  "ranAt": "2026-11-23T11:04:24.082Z",
   "cases": [
     {
       "id": "E0",
@@ -15,8 +15,8 @@
         "firstActBy": "Sat, Nov 21, 10:30 AM EST"
       },
       "sources": [
-        "/cases/f1c1db45-4008-451c-99bf-8802b1e6a269",
-        "/cases/9356a355-db03-469b-a9b2-ae6d365e3507"
+        "/cases/8f2f2b63-2b13-4124-b42e-5202ba60863f",
+        "/cases/f5ddab59-df9e-43dd-8286-2b25d7965c24"
       ],
       "actions": [
         "assign_followup"
@@ -52,8 +52,8 @@
         "closerBy": 70
       },
       "sources": [
-        "/cases/bb6c772c-a6fa-45f6-b83c-dfeae6f0e2e9",
-        "/cases/bb6c772c-a6fa-45f6-b83c-dfeae6f0e2e9/rescue/38f2d7da-5de0-4f40-87ea-eadbb0194809",
+        "/cases/50b6b47a-3cd0-4209-bb44-dc1428a8355d",
+        "/cases/50b6b47a-3cd0-4209-bb44-dc1428a8355d/rescue/62145e69-815c-48cd-9feb-99d1550ec737",
         "/inventory?q=NP-PAT-32"
       ],
       "actions": [
@@ -73,8 +73,8 @@
         "transferDraft": 403
       },
       "sources": [
-        "/cases/bd97ab2c-67c8-4f92-9b6f-680f091b7cda",
-        "/cases/bb6c772c-a6fa-45f6-b83c-dfeae6f0e2e9"
+        "/cases/e514ae42-9767-4ff6-8777-d022f8e885ad",
+        "/cases/50b6b47a-3cd0-4209-bb44-dc1428a8355d"
       ],
       "actions": []
     },
@@ -89,8 +89,8 @@
         "sinceLabel": "yesterday afternoon (Fri, Nov 20, 12:00 PM CST)"
       },
       "sources": [
-        "/cases/f1c1db45-4008-451c-99bf-8802b1e6a269",
-        "/cases/f1c1db45-4008-451c-99bf-8802b1e6a269"
+        "/cases/8f2f2b63-2b13-4124-b42e-5202ba60863f",
+        "/cases/8f2f2b63-2b13-4124-b42e-5202ba60863f"
       ],
       "actions": []
     },
@@ -142,10 +142,10 @@
         "sentence": "5 physically on hand, 4 reserved for other cases, 1 available, 2 required, short 1."
       },
       "sources": [
-        "/cases/1d2e5962-07ba-43a0-bb82-de1b1b5d628c",
+        "/cases/76343cac-1c0c-41ff-96d0-ff37c8041a3f",
         "/inventory?q=NP-PAT-32",
-        "/cases/584313fb-b425-47ab-9da3-2ae837dfc18c",
-        "/cases/892f90fc-4e15-4e4f-80c3-322b4c5e4d3e"
+        "/cases/91ab6d0c-d999-4cd0-ba53-31206807b3bf",
+        "/cases/6a608a72-e720-4718-ac84-ec09e7374fec"
       ],
       "actions": [
         "transfer"

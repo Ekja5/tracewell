@@ -37,6 +37,7 @@ import * as opsLoaners from './ops/loaners.js';
 import * as opsStock from './ops/stock.js';
 import * as opsVis from './ops/visibility.js';
 import * as opsUsage from './ops/usage.js';
+import * as opsPlan from './ops/plan.js';
 import { AVAILABILITY_SQL, ledgerReconciliation, reverseMovement, reserve } from './domain/inventory.js';
 import { parseScan } from '../shared/gs1.js';
 
@@ -260,6 +261,11 @@ export async function buildApp() {
   r('GET', '/api/run-sheet', 'board.view', async (db, ctx) => opsVis.runSheet(db, await actxOf(db, ctx)));
   r('GET', '/api/usage-report', 'inventory.view', async (db, ctx, req) => opsUsage.usageReport(db, await actxOf(db, ctx), { days: Number(Q(req).days) }));
   r('POST', '/api/replenishments/done', 'par.manage', async (db, ctx, req) => opsUsage.markReplaced(db, ctx, B(req)));
+  r('GET', '/api/case-entry/options', 'case.enter', async (db) => opsPlan.entryOptions(db));
+  r('POST', '/api/case-entry/preview', 'case.enter', async (db, ctx, req) => opsPlan.enterCase(db, await actxOf(db, ctx), B(req), 'preview'));
+  r('POST', '/api/case-entry', 'case.enter', async (db, ctx, req) => opsPlan.enterCase(db, await actxOf(db, ctx), B(req), 'commit'));
+  r('POST', '/api/cases/:id/urgent', 'board.view', async (db, ctx, req) => opsPlan.setUrgent(db, await actxOf(db, ctx), P(req).id, B(req)));
+  r('GET', '/api/demand-plan', 'inventory.view', async (db, ctx, req) => opsPlan.demandPlan(db, await actxOf(db, ctx), { weeks: Number(Q(req).weeks) }));
   r('GET', '/api/stock/expiring', 'inventory.view', async (db, ctx) => opsStock.expiringStock(db, await actxOf(db, ctx)));
   r('GET', '/api/people', 'attention.view', async (db, ctx) => rows(db, `select id, display_name, role from users where active and facility_id is null and (role <> 'admin' or id=$1) order by display_name`, [ctx.userId]));
   r('POST', '/api/cases/:id/requirements/:reqId/reserve-available', 'reservation.manage', async (db, ctx, req) => reserveAvailable(db, await actxOf(db, ctx), P(req).id, P(req).reqId));

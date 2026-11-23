@@ -53,7 +53,7 @@ function addSheet(wb: ExcelJS.Workbook, name: string, head: string[], body: stri
 
 /** Day-1 workbook: three worksheets plus a few deliberately untidy rows a real file would have. */
 export async function day1Workbook(): Promise<Buffer> {
-  const d = data(); const wb = new ExcelJS.Workbook();
+  const d = data(); const wb = new ExcelJS.Workbook(); wb.created = now(); wb.modified = now(); // stamped with the app clock, so a sample is never "older" than the demo it is loaded into
   const info = wb.addWorksheet('Read me');
   ['Synthetic example for the Tracewell pilot. No real hospitals, people or products.', '', 'Inventory: warehouse balances as of this morning.', 'Schedule: cases for the next few days, in each hospital\'s local time.', 'Requirements: the exact items each case needs.', '',
     'This file is untidy on purpose: one row has no lot number, one row is repeated, one quantity is in boxes, and one hospital name is ambiguous.'].forEach((t) => info.addRow([t]));
@@ -66,7 +66,7 @@ export async function day1Workbook(): Promise<Buffer> {
 
 /** Day-2 workbook: a later warehouse snapshot. The buyer picks the tibial-insert quantity. */
 export async function day2Workbook(insertQty = 6): Promise<Buffer> {
-  const d = data(); const wb = new ExcelJS.Workbook();
+  const d = data(); const wb = new ExcelJS.Workbook(); wb.created = now(); wb.modified = now(); // stamped with the app clock, so a sample is never "older" than the demo it is loaded into
   addSheet(wb, 'Inventory', INV_HEAD, [
     ['Main Warehouse', MFR, ITEMS.insert[0], ITEMS.insert[1], 'T10A', d.exp, String(insertQty), 'EA', ''],
     ['Main Warehouse', MFR, ITEMS.femoral[0], ITEMS.femoral[1], 'F4L1', d.exp, '1', 'EA', ''],
